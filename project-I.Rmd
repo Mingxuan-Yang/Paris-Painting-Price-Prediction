@@ -140,8 +140,12 @@ summary(model_bic)
 
 This model is exactly the one we need.
 
-```{r}
+```{r, warning = FALSE, fig.height = 10, fig.width = 10, fig.align = "center", fig.cap = "Diagnostic Plots"}
 model1 <- model_bic
+
+# diagnostic plots
+par(mfrow = c(2, 2))
+plot(model1)
 ```
 
 Save predictions and intervals. 
