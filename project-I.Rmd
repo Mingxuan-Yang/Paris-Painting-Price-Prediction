@@ -59,7 +59,7 @@ Using EDA and any numerical summaries get to know the data -  identify what you 
 
 ```{r clean data, warning = FALSE}
 # replace blank space with NA
-paintings_train_new <- as.data.frame(sapply(paintings_train, function(x) ifelse(x == "", NA, x)))
+paintings_train_new <- as.data.frame(sapply(paintings_train, function(x) ifelse(x == "" | x == "n/a", NA, x)))
 
 # change variable type
 paintings_train_new[, c(3, 5, 10, 11, 23, 24, 25, 26, 27, 29, 33)] <- lapply(paintings_train_new[, c(3, 5, 10, 11, 23, 24, 25, 26, 27, 29, 33)], function(x) {as.double(paste(x))})
@@ -68,52 +68,46 @@ paintings_train_new[, c(3, 5, 10, 11, 23, 24, 25, 26, 27, 29, 33)] <- lapply(pai
 paintings_train_new <- paintings_train_new[-which(paintings_train_new[, 3] > 1),]
 ```
 
-Based on the definition of variables, we can drop `sale`, `lot`, `count`, `subject`, `authorstandard`, `author` and `winningbidder`. 
+First of all, we can drop `price` and `count` based on their meanings, with the former being another type of our response and the latter being completely useless since it is the same for all observations.
 
-Since there are $58$ types of material, we can drop `material` as well due to the large amount.
+Besides, `sale`, `lot`, `subject`, `authorstandard`, `author`, `winningbidder` and `material` have too many levels, and thus they are not selected.
 
-Also, we don't want the variables whose missing part is larger than $50\%$, so we can drop `type_intermed`, `Diam_in` and `Surface_Rnd`.
+In addition, we don't want the variables whose missing parts are larger than $50\%$, so we can drop `authorstyle`, `type_intermed`, `Diam_in` and `Surface_Rnd`.
 
-### eda version 1
-```{r, fig.height = 32, fig.width = 24, fig.cap = "Scatter plots of predictors versus logprice"}
-# scatterplot
-par(mfrow = c(8, 6))
-for(i in c(3:9, 15:16, 19:21, 23:25, 28:29, 31:59)){
-  plot(paintings_train_new[,i], paintings_train_new[,10], xlab = colnames(paintings_train_new)[i], ylab = "logprice", cex.axis = 2.5, cex.lab = 2.5)
-}
-```
+After dropping `Diam_in` and `Surface_Rnd`, since `Height_in` and `Width_in` will be NA for round paintings, `Surface_Rect` and `Surface` will be the same during regression. Therefore, we can drop one of them (here we choose to drop `Surface`).
 
-### eda version 2
 ```{r, fig.height = 24, fig.width = 16, fig.align = "center"}
 # scatterplot
 par(mfrow = c(6, 4))
-for(i in c(3:9, 15:16, 19:21, 23:25, 28:29, 31:37)){
+for(i in c(3:9, 15, 19:21, 23:25, 28, 31:39)){
   plot(paintings_train_new[,i], paintings_train_new[,10], xlab = colnames(paintings_train_new)[i], ylab = "logprice", cex.axis = 2.5, cex.lab = 2.5)
 }
 ```
 
-```{r, fig.height = 24, fig.width = 16, fig.align = "center", fig.cap = "Scatter plots of predictors versus logprice"}
+```{r, fig.height = 20, fig.width = 16, fig.align = "center", fig.cap = "Plots of predictors versus logprice"}
 # scatterplot
-par(mfrow = c(6, 4))
-for(i in 38:59){
+par(mfrow = c(5, 4))
+for(i in 40:59){
   plot(paintings_train_new[,i], paintings_train_new[,10], xlab = colnames(paintings_train_new)[i], ylab = "logprice", cex.axis = 2.5, cex.lab = 2.5)
 }
 ```
 
-Since the points of `Height_in`, `Width_in`, `Surface_Rect` and `Surface` are clustered at the beginning of x axis, we can do log transformation to the corresponding predictors.
+Since the points of `Height_in`, `Width_in`, `Surface_Rect` are clustered at the beginning of x axis, we can do log transformation to the corresponding predictors to see their relationship with `logprice`.
 
 ```{r}
-summary(paintings_train_new[, c(23:25, 29)])
+summary(paintings_train_new[, c(23:25)])
 ```
 
-Since the minimum value of `Surface` is $0$, while doing log transformation, we need to add some positive value to the predictors.
+Since the minimum values of these predictors are all larger than $0$, we can do the log transformation directly.
 
-```{r, fig.height = 4, fig.width = 16}
-par(mfrow = c(1, 4))
-for(i in c(23:25, 29)){
-  plot(log(paintings_train_new[,i] + 0.1), paintings_train_new[,10], xlab = paste("log(", colnames(paintings_train_new)[i], ")", sep = ""), ylab = "logprice", cex.axis = 2, cex.lab = 2)
+```{r, fig.height = 4, fig.width = 12, fig.align = "center", fig.cap = "Plots of some log predictors versus logprice"}
+par(mfrow = c(1, 3))
+for(i in c(23:25)){
+  plot(log(paintings_train_new[,i]), paintings_train_new[,10], xlab = paste("log(", colnames(paintings_train_new)[i], ")", sep = ""), ylab = "logprice", cex.axis = 2, cex.lab = 2)
 }
 ```
+
+Note: I can see five best variables for prediction: `dealer`, `year`, `Interm`, `prevcoll` and `lrgfont`.
 
 ### Build your first model
 
@@ -121,7 +115,7 @@ In the first model predict the auction price `price` using the transformation `l
 
 ```{r AIC, echo=TRUE, cache = TRUE}
 # full model
-paintings_train_new <- na.omit(paintings_train_new[, c(3:10, 15:16, 19:21, 23:25, 28:29, 31:59)])
+paintings_train_new <- na.omit(paintings_train_new[, c(3:10, 15, 19:21, 23:25, 28, 31:59)])
 model_full <- lm(logprice ~ ., data = paintings_train_new)
 
 # AIC
@@ -131,32 +125,30 @@ summary(model_aic)
 
 Since there are more than $20$ predictors using AIC, we will turn to the more strict criterion BIC.
 
-```{r BIC, echo=TRUE, cache = TRUE}
+```{r BIC, echo = TRUE, cache = TRUE}
 # BIC
 model_bic <- step(model_full, k = log(nobs(model_full)), trace = F)
 summary(model_bic)
 ```
 
-```{r BIC with interaction, echo=TRUE, cache = TRUE}
+```{r BIC with interaction, echo = TRUE, cache = TRUE}
 # BIC with interaction
-model_full_interaction <- lm(logprice ~ (dealer + origin_cat + diff_origin + artistliving + engraved + prevcoll + finished + lrgfont + lands_sc + discauth + year + Height_in + Width_in + Surface_Rect)^2, data = paintings_train_new)
-model_bic <- step(model_full_interaction, k = log(nobs(model_full)), trace = F)
+model_full_interaction <- lm(logprice ~ (dealer + year + origin_cat + diff_origin + artistliving + Height_in + Width_in + Surface_Rect + engraved + prevcoll + finished + lrgfont + lands_sc + discauth)^2, data = paintings_train_new)
+model_bic <- step(model_full_interaction, k = log(nobs(model_full_interaction)), trace = F)
 summary(model_bic)
 ```
 
-After dropping the non-feasible interaction `dealerL:discauth1`, we can get the result of model1.
+This model is exactly the one we need.
 
 ```{r}
-model1 <- lm(formula = logprice ~ dealer + origin_cat + diff_origin + artistliving + engraved + prevcoll + finished + lrgfont + lands_sc + discauth + year + Height_in + Width_in + Surface_Rect + prevcoll:finished + discauth:year + discauth:Height_in, data = paintings_train_new)
+model1 <- model_bic
 ```
 
 Save predictions and intervals. 
 
-# !Problem! "diff_origin" "logprice" "price" "artistliving" "Diam_in" "Surface_Rnd" "engraved" "prevcoll" "finished" "lrgfont" "lands_sc" are NAs in the test data. Choose AIC?    
-
 ```{r predict-model1, echo=FALSE}
 # replace blank space with NA
-paintings_test_new <- as.data.frame(sapply(paintings_test, function(x) ifelse(x == "", NA, x)))
+paintings_test_new <- as.data.frame(sapply(paintings_test, function(x) ifelse(x == "" | x == "n/a", NA, x)))
 
 # change variable type
 paintings_test_new[, c(3, 5, 10, 11, 23, 24, 25, 26, 27, 29, 33)] <- lapply(paintings_test_new[, c(3, 5, 10, 11, 23, 24, 25, 26, 27, 29, 33)], function(x) {as.double(paste(x))})
@@ -216,91 +208,10 @@ In order to have a passing wercker badge, your file for predictions needs to be 
 Save predictions and intervals.  
 ```{r predict-model-final, echo=FALSE, include=FALSE}
 # change model1 or update as needed
-#predictions = as.data.frame(
-#  exp(predict(model1, newdata=paintings_test, 
-#              interval = "pred")))
-#save(predictions, file="predict-test.Rdata")
+predictions = as.data.frame(
+  exp(predict(model1, newdata = paintings_test_new, 
+              interval = "pred")))
+save(predictions, file="predict-test.Rdata")
 ```
-
 
 You will be able to see your scores on the score board.  They will be initialized by a prediction based on the mean in the training data.
-
-
-## Part II: Complex Model  (start Dec 4th ideally!)
-
-In this part you may go all out for constructing a best fitting model for predicting housing prices using methods that we have covered this semester.  You should feel free to to create any new variables (such as quadratic, interaction, or indicator variables, splines, etc) and try different methods, keeping in mind you should be able to explain your methods and results.
-
-Update your predictions using your complex model to provide point estimates and CI.
-
-```{r predict-model2, echo=FALSE}
-# replace model1 with model2 here
-#predictions = as.data.frame(
-#  exp(predict(model1, newdata=paintings_test, 
-#              interval = "pred")))
-#save(predictions, file="predict-test.Rdata")
-```
-
-You may iterate here as much as you like exploring different models until you are satisfied with your results, however keep in mind you must be able to explain your results to the art historian.
-
-### Part II: Write Up
-
-Once you are satisfied with your model, provide a write up of your data analysis project in a new Rmd file/pdf file: `Part-II-Writeup.Rmd` by copying over salient parts of your R notebook and the previous writeup (you should also save the pdf version) The written assignment consists of five parts:
-
-1. Introduction (1 point if improved from before)
-  add previous intro with any edits
-
-2. Exploratory data analysis (1 point if improved from before): 
-   add previous EDA
-   
-3. Discussion of preliminary model Part I (5 points)
-Discuss performance based on leader board results and suggested refinements.
-
-4.  Development of the final model (20 points)
-
-* Final model: must include a summary table
-
-* Variables: must include an explanation
-
-* Variable selection/shrinkage: must use appropriate method and include an explanation
-
-
-* Residual: must include a residual plot and a discussion
-
-* discussion of how prediction intervals obtained 
-
-5. Assessment of the final model (25 points)
-
-
-* Model evaluation: must include an evaluation discussion
-
-* Model testing : must include a discussion
-
-* Model result: must include a selection and discussion of the top 10 valued  paintings in the validation data.
-
-6. Conclusion (10 points): must include a summary of results and a discussion of things learned. Optional what would you do if you had more time.
-
-
-
-### Final Predictions Validation (20 points)
-Create predictions for the validation data from your final model using the dataframe `paintings_validation.Rdata` in your repo.  You may refit your final model to the combined training and test data.  Write predictions out to a file `prediction-validation.Rdata`
-*This should have the same format as the model output in Part I and II!*
-
-
-## Final: Class Presentations and Peer Evaluation
-
-Each Group should prepare 5 slides in their Github repo:  (save as slides.pdf)
-
-* Most interesting graphic  _a picture (painting) is worth a thousand words prize!_  
-
-* Best Model (motivation, how you found it, why you think it is best)
-
-* Best Insights into predicting Price.
-
-* 3 Best Paintings to purchase  (and why) (images are a bonus!)
-
-* Best Team Name/Graphic
-
-We will select winners based on the above criteria and overall performance.
-
-
-Finally your repo should have: `Part-I-Writeup.Rmd`, `Part-I-Writeup.pdf`,  `Part-II-Writeup.Rmd`, `Part-II-Writeup.pdf`,`slides.Rmd` (and whatever output you use for the presentation) and `predict-train.Rdata`,  `predict-test.Rdata` `predict-validation.Rdata`.
