@@ -2,10 +2,10 @@
 title: "Final Data Analysis Project"
 date: "See Parts for Write-Up due Dates"
 output:
+  pdf_document: default
   html_document:
     df_print: paged
     fig_caption: TRUE
-  pdf_document: default
 header-includes:  
   \usepackage{float} 
   \floatplacement{figure}{H}
@@ -74,11 +74,29 @@ Since there are $58$ types of material, we can drop `material` as well due to th
 
 Also, we don't want the variables whose missing part is larger than $50\%$, so we can drop `type_intermed`, `Diam_in` and `Surface_Rnd`.
 
-```{r scatter plot, fig.height = 48, fig.width = 16, fig.cap = "Scatter plots of predictors versus logprice"}
+### eda version 1
+```{r, fig.height = 32, fig.width = 24, fig.cap = "Scatter plots of predictors versus logprice"}
 # scatterplot
-par(mfrow = c(12, 4))
+par(mfrow = c(8, 6))
 for(i in c(3:9, 15:16, 19:21, 23:25, 28:29, 31:59)){
-  plot(paintings_train_new[,i], paintings_train_new[,10], xlab = colnames(paintings_train_new)[i], ylab = "logprice", cex.axis = 2, cex.lab = 2)
+  plot(paintings_train_new[,i], paintings_train_new[,10], xlab = colnames(paintings_train_new)[i], ylab = "logprice", cex.axis = 2.5, cex.lab = 2.5)
+}
+```
+
+### eda version 2
+```{r, fig.height = 24, fig.width = 16, fig.align = "center"}
+# scatterplot
+par(mfrow = c(6, 4))
+for(i in c(3:9, 15:16, 19:21, 23:25, 28:29, 31:37)){
+  plot(paintings_train_new[,i], paintings_train_new[,10], xlab = colnames(paintings_train_new)[i], ylab = "logprice", cex.axis = 2.5, cex.lab = 2.5)
+}
+```
+
+```{r, fig.height = 24, fig.width = 16, fig.align = "center", fig.cap = "Scatter plots of predictors versus logprice"}
+# scatterplot
+par(mfrow = c(6, 4))
+for(i in 38:59){
+  plot(paintings_train_new[,i], paintings_train_new[,10], xlab = colnames(paintings_train_new)[i], ylab = "logprice", cex.axis = 2.5, cex.lab = 2.5)
 }
 ```
 
