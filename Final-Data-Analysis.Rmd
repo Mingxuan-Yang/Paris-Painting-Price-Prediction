@@ -8,6 +8,10 @@ output: pdf_document
 knitr::opts_chunk$set(echo = FALSE)
 ```
 
+```{r}
+
+```
+
 
 For this project you will take the role of a consultant hired by an Art historian to explore what drove prices of paintings in 18th century Paris.  They have provided you with auction price data from 1764-1780 on the sales (seller/buyer), painter, and other characteristics of paintings. 
 

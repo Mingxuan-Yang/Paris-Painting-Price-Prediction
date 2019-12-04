@@ -1,0 +1,68 @@
+---
+title: "project-I"
+author: "Machao Deng"
+date: "2019Äê12ÔÂ3ÈÕ"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(ggplot2)
+library(GGally)
+library(tidyverse)
+library(leaps)
+```
+
+EDA
+```{r warning=FALSE}
+
+#the index of non character type variable
+non_char_index=which(unlist(lapply(paintings_train,typeof))!="character")
+
+#we first check the scatter plot of the dummy variables
+#position,year,count,Height_in,Width_in,Surface_Rect,Diam_in,Surface_Rnd,Surface,nfigures
+non_dummy=c(1,2,5,8,9,10,11,12,13,14)
+subset=paintings_train[,non_char_index[-non_dummy]]%>%
+  gather(key="key",value="value",-logprice)
+ggplot(subset,aes(x=value,y=logprice))+geom_point()+facet_wrap(~key)
+
+#check non dummy numeric variables
+ggpairs(paintings_train[,c(10,non_char_index[non_dummy])])%>%print(progress=F)
+```
+According to the graph, we found that dummy varaibles such as prevcoll, peasant, othgenre, lrgfont, engraved,discauth are relatively important to logprice.
+
+
+
+some of the character variables can be ignored since it's doesn't has any relationship with logprice in
+commen sense, and some need to be transformed
+```{r}
+char_index=which(unlist(lapply(paintings_train,typeof))=="character")
+subset2=paintings_train%>%
+  select(dealer,origin_author,origin_cat,school_pntg,Shape,materialCat,type_intermed,logprice)%>%
+  gather(key="key",value="value",-logprice)%>%mutate(value=factor(value))
+ggplot(subset2,aes(x=value,y=logprice))+geom_point()+facet_wrap(~key)
+```
+As we observed from scatter plots, we found that almost all the character variables we choose have
+effects on the logprice. Finally, we choose prevcoll, peasant, othgenre, irgfont, engraved,discauth,
+origin_author, origin_cat, type_intermed, dealer.
+
+
+model build
+```{r}
+model1=lm(logprice~(prevcoll+peasant+othgenre+lrgfont+engraved+discauth+factor(origin_author)+
+                      factor(origin_cat)+factor(type_intermed)+factor(dealer))^2
+          ,data=paintings_train)
+model2=step(model1,trace=FALSE)
+model2$call
+```
+
+
+```{r}
+subset3 <- paintings_train %>%
+  select(-price, -sale, -lot, -count, -subject, -authorstandard, -authorstyle, -author, -winningbidder, -nfigures, -material, -Surface_Rect, -Surface_Rnd, -Diam_in)
+model3=regsubsets(logprice~.,data=subset3,nvmax=20,method="forward")
+```
+
