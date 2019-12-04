@@ -93,7 +93,7 @@ Since the minimum value of `Surface` is $0$, while doing log transformation, we 
 ```{r, fig.height = 4, fig.width = 16}
 par(mfrow = c(1, 4))
 for(i in c(23:25, 29)){
-  plot(log(paintings_train_new[,i] + 0.1), paintings_train_new[,10], xlab = colnames(paintings_train_new)[i], ylab = "logprice", cex.axis = 2, cex.lab = 2)
+  plot(log(paintings_train_new[,i] + 0.1), paintings_train_new[,10], xlab = paste("log(", colnames(paintings_train_new)[i], ")", sep = ""), ylab = "logprice", cex.axis = 2, cex.lab = 2)
 }
 ```
 
@@ -101,7 +101,7 @@ for(i in c(23:25, 29)){
 
 In the first model predict the auction price `price` using the transformation `logprice` using at least 10 and up to 20 predictors and any interactions to build a model using linear regression. You may use stepwise model selection to simplify the model using AIC and/or BIC.  For reference, we will fit the null model to initialize the leaderboard, but replace model1 with your recommended model.
 
-```{r AIC, echo=TRUE}
+```{r AIC, echo=TRUE, cache = TRUE}
 # full model
 paintings_train_new <- na.omit(paintings_train_new[, c(3:10, 15:16, 19:21, 23:25, 28:29, 31:59)])
 model_full <- lm(logprice ~ ., data = paintings_train_new)
@@ -113,13 +113,13 @@ summary(model_aic)
 
 Since there are more than $20$ predictors using AIC, we will turn to the more strict criterion BIC.
 
-```{r BIC, echo=TRUE}
+```{r BIC, echo=TRUE, cache = TRUE}
 # BIC
 model_bic <- step(model_full, k = log(nobs(model_full)), trace = F)
 summary(model_bic)
 ```
 
-```{r BIC with interaction, echo=TRUE}
+```{r BIC with interaction, echo=TRUE, cache = TRUE}
 # BIC with interaction
 model_full_interaction <- lm(logprice ~ (dealer + origin_cat + diff_origin + artistliving + engraved + prevcoll + finished + lrgfont + lands_sc + discauth + year + Height_in + Width_in + Surface_Rect)^2, data = paintings_train_new)
 model_bic <- step(model_full_interaction, k = log(nobs(model_full)), trace = F)
