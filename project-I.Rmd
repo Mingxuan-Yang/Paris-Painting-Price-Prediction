@@ -128,7 +128,7 @@ This indicates that `Surface` and `ratio` are not missing completely randomly, s
 ```{r, cache = TRUE}
 # imputate missing
 set.seed(103)
-imputed <- mice(paintings_train_new)
+imputed <- mice(paintings_train_new, m = 5)
 paintings_train_new <- mice::complete(imputed)
 ```
 
@@ -136,7 +136,7 @@ paintings_train_new <- mice::complete(imputed)
 # scatterplot
 par(mfrow = c(6, 4))
 for(i in c(1:7, 9:25)){
-  plot(paintings_train_new[,i], paintings_train_new[, 8], xlab = colnames(paintings_train_new)[i], ylab = "logprice", cex.axis = 2.5, cex.lab = 2.5)
+  plot(paintings_train_new[, i], paintings_train_new[, 8], xlab = colnames(paintings_train_new)[i], ylab = "logprice", cex.axis = 2, cex.lab = 2)
 }
 ```
 
@@ -144,7 +144,7 @@ for(i in c(1:7, 9:25)){
 # scatterplot
 par(mfrow = c(6, 4))
 for(i in 26:46){
-  plot(paintings_train_new[,i], paintings_train_new[, 8], xlab = colnames(paintings_train_new)[i], ylab = "logprice", cex.axis = 2.5, cex.lab = 2.5)
+  plot(paintings_train_new[, i], paintings_train_new[, 8], xlab = colnames(paintings_train_new)[i], ylab = "logprice", cex.axis = 2, cex.lab = 2)
 }
 ```
 
@@ -244,7 +244,6 @@ plot(model1)
 Save predictions and intervals. 
 
 ```{r predict-model1, echo = FALSE, warning = FALSE}
-# prediction
 # mutate a variable that represents the number of paintings of a certain author and a certain winning bidder during this period
 nauthors <- count(paintings_test, authorstandard)
 paintings_test_new <- merge(paintings_test, nauthors, by = "authorstandard")
@@ -275,10 +274,17 @@ set.seed(103)
 imputed <- mice(paintings_test_new)
 paintings_test_new <- mice::complete(imputed)
 
+# rmse function
+rmse = function(y, ypred) {
+  rmse = sqrt(mean((y - ypred)^2))
+  return(rmse) 
+  }
+
+# prediction
 predictions = as.data.frame(
   exp(predict(model1, newdata = paintings_test_new, 
               interval = "pred")))
-save(predictions, file="predict-test.Rdata")
+rmse(predictions[, 1], exp(paintings_test$logprice))
 ```
 
 
