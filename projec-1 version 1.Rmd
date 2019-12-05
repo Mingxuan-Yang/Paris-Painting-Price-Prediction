@@ -1,0 +1,257 @@
+---
+title: "Final Data Analysis Project"
+date: "See Parts for Write-Up due Dates"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+    fig_caption: TRUE
+header-includes:  
+  \usepackage{float} 
+  \floatplacement{figure}{H}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+
+For this project you will take the role of a consultant hired by an Art historian to explore what drove prices of paintings in 18th century Paris.  They have provided you with auction price data from 1764-1780 on the sales (seller/buyer), painter, and other characteristics of paintings. 
+
+## About the Data Analysis Project
+
+The art historian would like to know what factors drove prices of painting, which paintings might be overvalued and which are undervalued.   It is up to you to decide what methods you want to use (frequentist or Bayesian or a combination) to answer these questions, and implement them to help to identify undervalued and overvalued paintings, as well as which features and possible interactions are at play.
+
+
+You will have three data sets: a subset for training, a subset for testing, and a third subset for validation. You will be asked to do data exploration and build your model (or models) initially using only the training data. Then, you will test your model on the testing data, and finally validate using the validation data. We are challenging you to keep your analysis experience realistic, and in a realistic scenario you would not have access to all three of these data sets at once.  You will be able to see on our scoreboard how well your team is doing based on its predictive performance on the testing data.  After your project is turned in you will see the final score on the validation set.   
+
+All members of the team should contribute equally and may be asked to answer any questions about the analysis at the final presentation.
+
+*For your analysis create a new Rmd named "project-I.Rmd" for part I
+and update accordingly rather than editing this.  Your write up should not have any of the instructions, for example. Figures should be labeled appropriately and report numbers using significant digits.  This file may be updated so do not edit this document.*
+
+## Code:
+
+In your write up your code should be hidden (`echo = FALSE`) so that your document is neat and easy to read. However your document should include all your code such that if I re-knit your Rmd file I should be able to obtain the results you presented.   If there is any code that you wish to highlight you may included it, but it should contribute significantly to your write up that should be directed to the art historian.
+
+see Due dates in Sakai/Calendar for submissions
+
+### Read in Training Data
+
+To get started read in the training data:
+
+```{r read-data, echo=TRUE}
+load("paintings_train.Rdata")
+load("paintings_test.Rdata")
+```
+
+The Code Book is in the file `paris_paintings.md` provides more information about the data.
+
+## Part I: Simple Model 
+
+```{r packages}
+suppressMessages(library(GGally))
+suppressMessages(library(caret))
+```
+
+### EDA
+
+Using EDA and any numerical summaries get to know the data -  identify what you might consider the 10 best variables for predicting `logprice` using scatterplots with other variables represented using colors or symbols, scatterplot matrices or conditioning plots.  
+
+```{r clean data, warning = FALSE}
+# replace blank space with NA
+paintings_train_new <- as.data.frame(sapply(paintings_train, function(x) ifelse(paste(x) == "" | paste(x) == "n/a", NA, x)))
+
+# change variable type
+paintings_train_new[, c(3, 5, 10, 11, 23, 24, 25, 26, 27, 29, 33)] <- lapply(paintings_train_new[, c(3, 5, 10, 11, 23, 24, 25, 26, 27, 29, 33)], function(x) {as.double(paste(x))})
+
+# clean position
+paintings_train_new <- paintings_train_new[-which(paintings_train_new[, 3] > 1),]
+```
+
+First of all, we can drop `price` and `count` based on their meanings, with the former being another type of our response and the latter being completely useless since it is the same for all observations.
+
+Besides, `sale`, `lot`, `subject`, `authorstandard`, `author`, `winningbidder` and `material` have too many levels, and thus they are not selected.
+
+In addition, we don't want the variables whose missing parts are larger than $50\%$, so we can drop `authorstyle`, `type_intermed`, `Diam_in` and `Surface_Rnd`.
+
+After dropping `Diam_in` and `Surface_Rnd`, since `Height_in` and `Width_in` will be NA for round paintings, `Surface_Rect` and `Surface` will be the same during regression. Therefore, we can drop one of them (here we choose to drop `Surface`).
+
+```{r, fig.height = 24, fig.width = 16, fig.align = "center"}
+# scatterplot
+par(mfrow = c(6, 4))
+for(i in c(3:9, 15, 19:21, 23:25, 28, 31:39)){
+  plot(paintings_train_new[,i], paintings_train_new[,10], xlab = colnames(paintings_train_new)[i], ylab = "logprice", cex.axis = 2.5, cex.lab = 2.5)
+}
+```
+
+```{r, fig.height = 20, fig.width = 16, fig.align = "center", fig.cap = "Plots of predictors versus logprice"}
+# scatterplot
+par(mfrow = c(5, 4))
+for(i in 40:59){
+  plot(paintings_train_new[,i], paintings_train_new[,10], xlab = colnames(paintings_train_new)[i], ylab = "logprice", cex.axis = 2.5, cex.lab = 2.5)
+}
+```
+
+Since the points of `Height_in`, `Width_in`, `Surface_Rect` are clustered at the beginning of x axis, we can do log transformation to the corresponding predictors to see their relationship with `logprice`.
+
+```{r}
+summary(paintings_train_new[, c(23:25)])
+```
+
+Since the minimum values of these predictors are all larger than $0$, we can do the log transformation directly.
+
+```{r, fig.height = 4, fig.width = 12, fig.align = "center", fig.cap = "Plots of some log predictors versus logprice"}
+par(mfrow = c(1, 3))
+for(i in c(23:25)){
+  plot(log(paintings_train_new[,i]), paintings_train_new[,10], xlab = paste("log(", colnames(paintings_train_new)[i], ")", sep = ""), ylab = "logprice", cex.axis = 2, cex.lab = 2)
+}
+```
+
+Note: I can see five best variables for prediction: `dealer`, `year`, `Interm`, `prevcoll` and `lrgfont`.
+
+### Build your first model
+
+In the first model predict the auction price `price` using the transformation `logprice` using at least 10 and up to 20 predictors and any interactions to build a model using linear regression. You may use stepwise model selection to simplify the model using AIC and/or BIC.  For reference, we will fit the null model to initialize the leaderboard, but replace model1 with your recommended model.
+
+```{r AIC, echo=TRUE, cache = TRUE}
+# full model
+paintings_train_new <- na.omit(paintings_train_new[, c(3:10, 15, 19:21, 23:25, 28, 31:59)])
+model_full <- lm(logprice ~ ., data = paintings_train_new)
+# AIC
+model_aic <- step(model_full, k = 2, direction = "both", trace = F)
+summary(model_aic)
+```
+
+Since there are more than $20$ predictors using AIC, we will turn to the more strict criterion BIC.
+
+```{r BIC, echo = TRUE, cache = TRUE}
+# BIC
+model_bic <- step(model_full, k = log(nobs(model_full)), trace = F)
+summary(model_bic)
+```
+
+```{r BIC with interaction, echo = TRUE, cache = TRUE}
+# BIC with interaction
+model_full_interaction <- lm(logprice ~ (dealer + year + origin_cat + diff_origin + artistliving + Height_in + Width_in + Surface_Rect + engraved + prevcoll + finished + lrgfont + lands_sc + discauth)^2, data = paintings_train_new)
+model_bic <- step(model_full_interaction, k = log(nobs(model_full_interaction)), trace = F)
+summary(model_bic)
+```
+
+This model is exactly the one we need.
+
+```{r, warning = FALSE, fig.height = 10, fig.width = 10, fig.align = "center", fig.cap = "Diagnostic Plots"}
+model1 <- model_bic
+# diagnostic plots
+par(mfrow = c(2, 2))
+plot(model1)
+```
+
+```{r, warning = FALSE}
+# 10-fold cross validation
+set.seed(1)
+train(logprice ~ dealer + year + origin_cat + diff_origin + 
+    artistliving + Height_in + Width_in + Surface_Rect + engraved + 
+    prevcoll + finished + lrgfont + lands_sc + discauth + dealer:discauth + 
+    year:discauth + Height_in:discauth + prevcoll:finished, method = "lm", data = paintings_train_new, trControl = trainControl(method = "cv", number = 10))
+```
+
+10-fold cross validation RMSE $1.165233$.
+
+Save predictions and intervals. 
+
+```{r}
+# test data
+row_names <- rownames(paintings_test)
+row_names <- as.double(row_names)
+paintings_test <- read.csv("paris_paintings.csv")[row_names, -c(1, 34)]
+
+# replace blank space with NA
+paintings_test_new <- as.data.frame(sapply(paintings_test, function(x) ifelse(paste(x) == "" | paste(x) == "n/a", NA, paste(x))))
+
+# change variable type
+paintings_test_new[, c(3, 5, 10, 11, 23, 24, 25, 26, 27, 29, 33)] <- lapply(paintings_test_new[, c(3, 5, 10, 11, 23, 24, 25, 26, 27, 29, 33)], function(x) {as.double(paste(x))})
+
+# rmse function
+rmse = function(y, ypred) {
+  rmse = sqrt(mean((y - ypred)^2))
+  return(rmse) 
+  }
+
+# prediction
+predictions <- exp(predict(model1, newdata = paintings_test_new))
+na <- which(is.na(predictions))
+rmse(predictions[-na], exp(paintings_test$logprice[-na]))
+```
+
+
+```{r predict-model1, echo=FALSE}
+# replace blank space with NA
+paintings_test_new <- as.data.frame(sapply(paintings_test, function(x) ifelse(x == "" | x == "n/a", NA, x)))
+
+# change variable type
+paintings_test_new[, c(3, 5, 10, 11, 23, 24, 25, 26, 27, 29, 33)] <- lapply(paintings_test_new[, c(3, 5, 10, 11, 23, 24, 25, 26, 27, 29, 33)], function(x) {as.double(paste(x))})
+
+# prediction
+predictions = as.data.frame(
+  exp(predict(model1, newdata = paintings_test_new, 
+              interval = "pred")))
+range(predictions[, 1])
+save(predictions, file="predict-test.Rdata")
+```
+
+
+### Part I Write up *Last day to submit is Dec 7 by 5; accepted until Dec 6 (5 points off if late)*
+
+Once you are satisfied with your model, provide a write up of your data analysis project in a new Rmd file/pdf file: `Part-I-Writeup.Rmd` by copying over salient parts of your R notebook. The written assignment consists of five parts:
+
+1. Introduction: Summary of problem and objectives (5 points)
+
+2. Exploratory data analysis (10 points): must include three correctly labeled graphs and an explanation that highlight the most important features that went into your model building.
+
+3. Development and assessment of an initial model (10 points)
+
+* Initial model: must include a summary table and an explanation/discussion for variable selection and overall amount of variation explained. 
+
+* Model selection: must include a discussion
+
+* Residual: must include residual plot(s) and a discussion.  
+
+* Variables: must include table of coefficients and CI
+
+4. Summary and Conclusions (10 points)
+
+What is the (median) price for the "baseline" category if there are categorical or dummy variables in the model (add CI's)?  (be sure to include units!) Highlight important findings and potential limitations of your model.  Does it appear that interactions are important?  What are the most important variables and/or interactions?  Provide interprations of how the most important variables influence the (median) price giving a range (CI).  Correct interpretation of coefficients for the log model desirable for full points.
+
+Provide recommendations for the art historian about features or combination of features to look for to find the most valuable paintings.
+
+_Points will be deducted for code chunks that should not be included, etc._
+
+*Upload write up  to Sakai any time before Dec 7th*
+
+###  Evaluation on test data for Part I
+
+Once your write up is submitted, your models will be evaluated on the following criteria based on predictions  on the test data (20 points): 
+
+* Bias:  Average (Yhat-Y)  positive values indicate the model tends to overestimate price (on average) while negative values indicate the model tends to underestimate price.
+
+* Maximum Deviation:  Max |Y-Yhat| -  identifies the worst prediction  made in the validation data set.
+
+* Mean Absolute Deviation:  Average |Y-Yhat| - the average error (regardless of sign).
+
+* Root Mean Square Error: Sqrt Average (Y-Yhat)^2
+
+* Coverage:  Average( lwr < Y < upr) 
+
+In order to have a passing wercker badge, your file for predictions needs to be the same length as the test data, with three columns:  fitted values, lower CI and upper CI values in that order with names, *fit*, *lwr*, and *upr* respectively such as in the code chunk below. 
+
+Save predictions and intervals.  
+```{r predict-model-final, echo=FALSE, include=FALSE}
+# change model1 or update as needed
+predictions = as.data.frame(
+  exp(predict(model1, newdata = paintings_test_new, 
+              interval = "pred")))
+save(predictions, file="predict-test.Rdata")
+```
+
+You will be able to see your scores on the score board.  They will be initialized by a prediction based on the mean in the training data.
