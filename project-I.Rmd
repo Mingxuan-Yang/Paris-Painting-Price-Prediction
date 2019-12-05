@@ -51,96 +51,167 @@ The Code Book is in the file `paris_paintings.md` provides more information abou
 
 ```{r packages}
 suppressMessages(library(GGally))
+suppressMessages(library(plyr))
+suppressMessages(library(dplyr))
+suppressMessages(library(mice))
+# need to delete if choose not to show rf process
+suppressMessages(library(randomForest))
 ```
 
 ### EDA
 
-Using EDA and any numerical summaries get to know the data -  identify what you might consider the 10 best variables for predicting `logprice` using scatterplots with other variables represented using colors or symbols, scatterplot matrices or conditioning plots.  
+Using EDA and any numerical summaries get to know the data -  identify what you might consider the 10 best variables for predicting `logprice` using scatterplots with other variables represented using colors or symbols, scatterplot matrices or conditioning plots.
 
-```{r clean data, warning = FALSE}
-# replace blank space with NA
-paintings_train_new <- as.data.frame(sapply(paintings_train, function(x) ifelse(x == "" | x == "n/a", NA, x)))
-
-# change variable type
-paintings_train_new[, c(3, 5, 10, 11, 23, 24, 25, 26, 27, 29, 33)] <- lapply(paintings_train_new[, c(3, 5, 10, 11, 23, 24, 25, 26, 27, 29, 33)], function(x) {as.double(paste(x))})
-
-# clean position
-paintings_train_new <- paintings_train_new[-which(paintings_train_new[, 3] > 1),]
+```{r}
+# collinearity
+table(paintings_train$Interm, paintings_train$type_intermed)
+table(paintings_train$mat, paintings_train$materialCat)
 ```
 
-First of all, we can drop `price` and `count` based on their meanings, with the former being another type of our response and the latter being completely useless since it is the same for all observations.
+Therefore, we can drop `Interm` and `materialCat` due to perfect collinearity.
 
-Besides, `sale`, `lot`, `subject`, `authorstandard`, `author`, `winningbidder` and `material` have too many levels, and thus they are not selected.
+```{r, echo = TRUE}
+# missing randomly or not
+missing = lm(paintings_train$logprice ~ paintings_train$winningbiddertype=="")
+summary(missing)
+```
 
-In addition, we don't want the variables whose missing parts are larger than $50\%$, so we can drop `authorstyle`, `type_intermed`, `Diam_in` and `Surface_Rnd`.
+This indicates that `winningbiddertype` is not missing purely randomly and that there is a strong case for selective non-response. Similarly, `endbuyer`, `type_intermed`, `material` and `mat` are not missing purely randomly either. So we impute "n/a" into `winningbiddertype`, `endbuyer`, `type_intermed`, `Shape`, `material` and `mat` to replace "" and "-" as a new category.
 
-After dropping `Diam_in` and `Surface_Rnd`, since `Height_in` and `Width_in` will be NA for round paintings, `Surface_Rect` and `Surface` will be the same during regression. Therefore, we can drop one of them (here we choose to drop `Surface`).
+```{r clean data, warning = FALSE}
+# mutate a variable that represents the number of paintings of a certain author during this period
+npaintings <- count(paintings_train, authorstandard)
+paintings_train_new <- merge(paintings_train, npaintings, by = "authorstandard")
+
+# mutate a variable that represents ratio of height and width, which equals 1 for circle and square
+paintings_train_new$ratio <- paintings_train_new$Height_in/paintings_train_new$Width_in
+paintings_train_new[which(paintings_train_new$Diam_in != 0), 61] <- 1
+
+# replace blank space and NA of categorical variables with n/a
+paintings_train_new[, c(5, 7:10, 13:28, 30:32, 34:59)] <- as.data.frame(sapply(paintings_train_new[, c(5, 7:10, 13:28, 30:32, 34:59)], function(x) ifelse(x == "" | x == "-", "n/a", x)))
+
+# clean position
+paintings_train_new <- paintings_train_new[-which(paintings_train_new[, 4] > 1),]
+
+# clean Shape
+paintings_train_new[which(paintings_train_new$Shape == "ronde"), 28] <- "round"
+paintings_train_new[which(paintings_train_new$Shape == "ovale"), 28] <- "oval"
+```
+
+We can drop `price` and `count` based on their meanings, with the former being another type of our response and the latter being completely useless since it is the same for all observations.
+
+Besides, `sale`, `lot`, `subject`, `author`, `winningbidder` and `material` have too many levels, and thus they are not selected.
+
+In addition, we have alrealy built a variable that contains the useful information of `authorstandard`, so we can drop it as well. Similarly, we can drop `Height_in`, `Width_in`, `Surface_Rect`, `Diam_in` and `Surface_Rnd`.
+
+```{r}
+# choose variables
+paintings_train_new <- paintings_train_new %>% 
+  select(-authorstandard, -sale, -lot, -price, -count, -subject, -author, -winningbidder, -Interm, -Height_in, -Width_in, -Surface_Rect, -Diam_in, -Surface_Rnd, -material, -materialCat)
+```
+
+Since there are some missing values in variable `Surface` and `ratio`, we need to deal with them.
+
+```{r, echo = TRUE}
+missing_Surface <- lm(paintings_train_new$logprice ~ is.na(paintings_train_new$Surface))
+summary(missing_Surface)
+missing_ratio <- lm(paintings_train_new$logprice ~ is.na(paintings_train_new$ratio))
+summary(missing_ratio)
+```
+
+This indicates that `Surface` and `ratio` are not missing completely randomly, so we cannot just delete the missing rows. Instead, we choose to do the imputation using mice command.
+
+```{r, cache = TRUE}
+# imputate missing
+set.seed(103)
+imputed <- mice(paintings_train_new)
+paintings_train_new <- mice::complete(imputed)
+```
 
 ```{r, fig.height = 24, fig.width = 16, fig.align = "center"}
 # scatterplot
 par(mfrow = c(6, 4))
-for(i in c(3:9, 15, 19:21, 23:25, 28, 31:39)){
-  plot(paintings_train_new[,i], paintings_train_new[,10], xlab = colnames(paintings_train_new)[i], ylab = "logprice", cex.axis = 2.5, cex.lab = 2.5)
+for(i in c(1:7, 9:25)){
+  plot(paintings_train_new[,i], paintings_train_new[, 8], xlab = colnames(paintings_train_new)[i], ylab = "logprice", cex.axis = 2.5, cex.lab = 2.5)
 }
 ```
 
 ```{r, fig.height = 20, fig.width = 16, fig.align = "center", fig.cap = "Plots of predictors versus logprice"}
 # scatterplot
 par(mfrow = c(5, 4))
-for(i in 40:59){
-  plot(paintings_train_new[,i], paintings_train_new[,10], xlab = colnames(paintings_train_new)[i], ylab = "logprice", cex.axis = 2.5, cex.lab = 2.5)
+for(i in 26:45){
+  plot(paintings_train_new[,i], paintings_train_new[, 8], xlab = colnames(paintings_train_new)[i], ylab = "logprice", cex.axis = 2.5, cex.lab = 2.5)
 }
 ```
 
-Since the points of `Height_in`, `Width_in`, `Surface_Rect` are clustered at the beginning of x axis, we can do log transformation to the corresponding predictors to see their relationship with `logprice`.
+Since the points of `Surface`, `nfigures`, `n` and `ratio` are clustered at the beginning of x axis, we can do log transformation to the corresponding predictors to see their relationship with `logprice`.
 
 ```{r}
-summary(paintings_train_new[, c(23:25)])
+summary(paintings_train_new[, c(15, 17, 44:45)])
 ```
 
-Since the minimum values of these predictors are all larger than $0$, we can do the log transformation directly.
+Since the minimum values of `Surface` and `nfigures` are $0$, we need to add a positive value before doing the log transformation.
 
-```{r, fig.height = 4, fig.width = 12, fig.align = "center", fig.cap = "Plots of some log predictors versus logprice"}
-par(mfrow = c(1, 3))
-for(i in c(23:25)){
-  plot(log(paintings_train_new[,i]), paintings_train_new[,10], xlab = paste("log(", colnames(paintings_train_new)[i], ")", sep = ""), ylab = "logprice", cex.axis = 2, cex.lab = 2)
+```{r, fig.height = 4, fig.width = 16, fig.align = "center", fig.cap = "Plots of some log predictors versus logprice"}
+par(mfrow = c(1, 4))
+for(i in c(15, 17, 44:45)){
+  plot(log(paintings_train_new[, i] + 1), paintings_train_new[, 8], xlab = paste("log(", colnames(paintings_train_new)[i], ")", sep = ""), ylab = "logprice", cex.axis = 2, cex.lab = 2)
 }
 ```
 
-Note: I can see five best variables for prediction: `dealer`, `year`, `Interm`, `prevcoll` and `lrgfont`.
+```{r, cache = TRUE, fig.cap = "Variable Importance Measures in Random Forests"}
+# random forest
+model_rf <- randomForest(logprice ~ .,data = paintings_train_new, mtry = 7, importance = TRUE)
+varImpPlot(model_rf, n.var = 15, main = "Variable Importance Measures")
+```
+
 
 ### Build your first model
 
 In the first model predict the auction price `price` using the transformation `logprice` using at least 10 and up to 20 predictors and any interactions to build a model using linear regression. You may use stepwise model selection to simplify the model using AIC and/or BIC.  For reference, we will fit the null model to initialize the leaderboard, but replace model1 with your recommended model.
 
+### version 1 (using random forest)
+
+From the result of random forest, we can choose $17$ variables.
+
+```{r, echo = TRUE, cache = TRUE}
+# full model
+model_full <- lm(logprice ~ (position + dealer + year + origin_author + origin_cat + school_pntg + winningbiddertype + endbuyer + type_intermed + Shape + Surface + mat + paired + finished + lrgfont + n + ratio)^2, data = paintings_train_new)
+
+# BIC
+model_bic <- step(model_full, k = log(nobs(model_full)), direction = "both", trace = F)
+summary(model_bic)
+```
+
+### version 2 (using BIC)
+
 ```{r AIC, echo=TRUE, cache = TRUE}
 # full model
-paintings_train_new <- na.omit(paintings_train_new[, c(3:10, 15, 19:21, 23:25, 28, 31:59)])
-model_full <- lm(logprice ~ ., data = paintings_train_new)
+model_full_2 <- lm(logprice ~ ., data = paintings_train_new)
 
 # AIC
-model_aic <- step(model_full, k = 2, direction = "both", trace = F)
-summary(model_aic)
+model_aic_2 <- step(model_full_2, k = 2, direction = "both", trace = F)
+summary(model_aic_2)
 ```
 
 Since there are more than $20$ predictors using AIC, we will turn to the more strict criterion BIC.
 
 ```{r BIC, echo = TRUE, cache = TRUE}
 # BIC
-model_bic <- step(model_full, k = log(nobs(model_full)), trace = F)
-summary(model_bic)
+model_bic_2 <- step(model_full_2, k = log(nobs(model_full)), trace = F)
+summary(model_bic_2)
 ```
 
 ```{r BIC with interaction, echo = TRUE, cache = TRUE}
 # BIC with interaction
 model_full_interaction <- lm(logprice ~ (dealer + year + origin_cat + diff_origin + artistliving + Height_in + Width_in + Surface_Rect + engraved + prevcoll + finished + lrgfont + lands_sc + discauth)^2, data = paintings_train_new)
-model_bic <- step(model_full_interaction, k = log(nobs(model_full_interaction)), trace = F)
-summary(model_bic)
+model_bic_2 <- step(model_full_interaction, k = log(nobs(model_full_interaction)), trace = F)
+summary(model_bic_2)
 ```
 
 This model is exactly the one we need.
 
-```{r, warning = FALSE, fig.height = 10, fig.width = 10, fig.align = "center", fig.cap = "Diagnostic Plots"}
+```{r, warning = FALSE, fig.height = 8, fig.width = 8, fig.align = "center", fig.cap = "Diagnostic Plots"}
 model1 <- model_bic
 
 # diagnostic plots
@@ -150,7 +221,7 @@ plot(model1)
 
 Save predictions and intervals. 
 
-```{r predict-model1, echo=FALSE}
+```{r predict-model1, echo = FALSE, warning = FALSE}
 # replace blank space with NA
 paintings_test_new <- as.data.frame(sapply(paintings_test, function(x) ifelse(x == "" | x == "n/a", NA, x)))
 
