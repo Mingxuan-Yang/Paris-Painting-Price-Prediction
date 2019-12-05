@@ -56,6 +56,7 @@ suppressMessages(library(dplyr))
 suppressMessages(library(mice))
 # need to delete if choose not to show rf process
 suppressMessages(library(randomForest))
+suppressMessages(library(caret))
 ```
 
 ### EDA
@@ -175,16 +176,24 @@ In the first model predict the auction price `price` using the transformation `l
 
 ### version 1 (using random forest)
 
-From the result of random forest, we can choose $16$ variables.
+From the result of random forest, we can choose $14$ variables. (drop `diff_origin` since it's perfectly collinear with `origin_author` and `origin_cat`; drop `winningbiddertype` and `mat` since there are too many categories in them)
 
 ```{r, echo = TRUE, cache = TRUE}
 # full model
-model_full <- lm(logprice ~ (position + dealer + year + origin_author + origin_cat + winningbiddertype + endbuyer + type_intermed + Surface + mat + paired + finished + lrgfont + n_author + n_bidder + ratio)^2, data = paintings_train_new)
+model_full <- lm(logprice ~ (position + dealer + year + origin_author + origin_cat + endbuyer + type_intermed + Surface + paired + finished + lrgfont + n_author + n_bidder + ratio)^2, data = paintings_train_new)
 
 # BIC
 model_bic <- step(model_full, k = log(nobs(model_full)), direction = "both", trace = F)
 summary(model_bic)
 ```
+
+```{r, warning = FALSE}
+# 10-fold cross validation
+set.seed(1)
+train(logprice ~ position + dealer + year + origin_author + origin_cat + endbuyer + type_intermed + Surface + paired + finished + lrgfont + n_author + n_bidder + ratio + position:Surface + position:n_author + dealer:year + year:endbuyer + year:n_author + year:n_bidder + origin_cat:n_author + Surface:paired + Surface:n_bidder + Surface:ratio, method = "lm", data = paintings_train_new, trControl = trainControl(method = "cv", number = 10))
+```
+
+10-fold cross validation RMSE $1.206108$.
 
 ### version 2 (using BIC)
 
@@ -205,14 +214,24 @@ model_bic_2 <- step(model_full_2, k = log(nobs(model_full)), trace = F)
 summary(model_bic_2)
 ```
 
+(drop `winningbiddertype` since there are too many categories in it)
+
 ```{r BIC with interaction, echo = TRUE, cache = TRUE}
 # BIC with interaction
-model_full_interaction <- lm(logprice ~ (dealer + year + origin_cat + diff_origin + artistliving + Height_in + Width_in + Surface_Rect + engraved + prevcoll + finished + lrgfont + lands_sc + discauth)^2, data = paintings_train_new)
+model_full_interaction <- lm(logprice ~ (dealer + year + origin_author + diff_origin + artistliving + Surface + engraved + prevcoll + paired + finished + lrgfont + lands_sc + still_life + discauth + n_author + ratio)^2, data = paintings_train_new)
 model_bic_2 <- step(model_full_interaction, k = log(nobs(model_full_interaction)), trace = F)
 summary(model_bic_2)
 ```
 
-This model is exactly the one we need.
+```{r, warning = FALSE}
+# 10-fold cross validation
+set.seed(1)
+train(logprice ~ dealer + year + origin_author + diff_origin + artistliving + Surface + engraved + prevcoll + paired + finished + lrgfont + lands_sc + still_life + discauth + n_author + ratio + dealer:year + diff_origin:discauth + diff_origin:ratio + Surface:still_life + Surface:ratio + prevcoll:finished + paired:lrgfont + paired:ratio + finished:discauth + discauth:ratio, method = "lm", data = paintings_train_new, trControl = trainControl(method = "cv", number = 10))
+```
+
+10-fold cross validation RMSE $1.225015$.
+
+Since $1.206108 < 1.225015$, we choose model_bic as our final model.
 
 ```{r, warning = FALSE, fig.height = 8, fig.width = 8, fig.align = "center", fig.cap = "Diagnostic Plots"}
 model1 <- model_bic
@@ -225,13 +244,37 @@ plot(model1)
 Save predictions and intervals. 
 
 ```{r predict-model1, echo = FALSE, warning = FALSE}
-# replace blank space with NA
-paintings_test_new <- as.data.frame(sapply(paintings_test, function(x) ifelse(x == "" | x == "n/a", NA, x)))
-
-# change variable type
-paintings_test_new[, c(3, 5, 10, 11, 23, 24, 25, 26, 27, 29, 33)] <- lapply(paintings_test_new[, c(3, 5, 10, 11, 23, 24, 25, 26, 27, 29, 33)], function(x) {as.double(paste(x))})
-
 # prediction
+# mutate a variable that represents the number of paintings of a certain author and a certain winning bidder during this period
+nauthors <- count(paintings_test, authorstandard)
+paintings_test_new <- merge(paintings_test, nauthors, by = "authorstandard")
+nbidders <- count(paintings_test, winningbidder)
+paintings_test_new <- merge(paintings_test_new, nbidders, by = "winningbidder")
+colnames(paintings_test_new)[60:61] <- c("n_author", "n_bidder")
+
+# mutate a variable that represents ratio of height and width, which equals 1 for circle and square
+paintings_test_new$ratio <- paintings_test_new$Height_in/paintings_test_new$Width_in
+paintings_test_new[which(paintings_test_new$Diam_in != 0), 62] <- 1
+
+# replace blank space and NA of categorical variables with n/a
+paintings_test_new[, c(6, 8:11, 14:28, 30:32, 34:59)] <- as.data.frame(sapply(paintings_test_new[, c(6, 8:11, 14:28, 30:32, 34:59)], function(x) ifelse(x == "" | x == "-", "n/a", x)))
+
+# clean position
+paintings_test_new[which(paintings_test_new[, 5] > 1), 5] <- paintings_test_new[which(paintings_test_new[, 5] > 1), 5]/100
+
+# clean Shape
+paintings_test_new[which(paintings_test_new$Shape == "ronde"), 28] <- "round"
+paintings_test_new[which(paintings_test_new$Shape == "ovale"), 28] <- "oval"
+
+# choose variables
+paintings_test_new <- paintings_test_new %>% 
+  select(-winningbidder, -authorstandard, -sale, -lot, -price, -count, -subject, -author, -Interm, -Height_in, -Width_in, -Surface_Rect, -Diam_in, -Surface_Rnd, -material, -materialCat)
+
+# imputate missing
+set.seed(103)
+imputed <- mice(paintings_test_new)
+paintings_test_new <- mice::complete(imputed)
+
 predictions = as.data.frame(
   exp(predict(model1, newdata = paintings_test_new, 
               interval = "pred")))
