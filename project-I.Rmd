@@ -79,19 +79,22 @@ summary(missing)
 This indicates that `winningbiddertype` is not missing purely randomly and that there is a strong case for selective non-response. Similarly, `endbuyer`, `type_intermed`, `material` and `mat` are not missing purely randomly either. So we impute "n/a" into `winningbiddertype`, `endbuyer`, `type_intermed`, `Shape`, `material` and `mat` to replace "" and "-" as a new category.
 
 ```{r clean data, warning = FALSE}
-# mutate a variable that represents the number of paintings of a certain author during this period
-npaintings <- count(paintings_train, authorstandard)
-paintings_train_new <- merge(paintings_train, npaintings, by = "authorstandard")
+# mutate a variable that represents the number of paintings of a certain author and a certain winning bidder during this period
+nauthors <- count(paintings_train, authorstandard)
+paintings_train_new <- merge(paintings_train, nauthors, by = "authorstandard")
+nbidders <- count(paintings_train, winningbidder)
+paintings_train_new <- merge(paintings_train_new, nbidders, by = "winningbidder")
+colnames(paintings_train_new)[60:61] <- c("n_author", "n_bidder")
 
 # mutate a variable that represents ratio of height and width, which equals 1 for circle and square
 paintings_train_new$ratio <- paintings_train_new$Height_in/paintings_train_new$Width_in
-paintings_train_new[which(paintings_train_new$Diam_in != 0), 61] <- 1
+paintings_train_new[which(paintings_train_new$Diam_in != 0), 62] <- 1
 
 # replace blank space and NA of categorical variables with n/a
-paintings_train_new[, c(5, 7:10, 13:28, 30:32, 34:59)] <- as.data.frame(sapply(paintings_train_new[, c(5, 7:10, 13:28, 30:32, 34:59)], function(x) ifelse(x == "" | x == "-", "n/a", x)))
+paintings_train_new[, c(6, 8:11, 14:28, 30:32, 34:59)] <- as.data.frame(sapply(paintings_train_new[, c(6, 8:11, 14:28, 30:32, 34:59)], function(x) ifelse(x == "" | x == "-", "n/a", x)))
 
 # clean position
-paintings_train_new <- paintings_train_new[-which(paintings_train_new[, 4] > 1),]
+paintings_train_new <- paintings_train_new[-which(paintings_train_new[, 5] > 1),]
 
 # clean Shape
 paintings_train_new[which(paintings_train_new$Shape == "ronde"), 28] <- "round"
@@ -100,14 +103,14 @@ paintings_train_new[which(paintings_train_new$Shape == "ovale"), 28] <- "oval"
 
 We can drop `price` and `count` based on their meanings, with the former being another type of our response and the latter being completely useless since it is the same for all observations.
 
-Besides, `sale`, `lot`, `subject`, `author`, `winningbidder` and `material` have too many levels, and thus they are not selected.
+Besides, `sale`, `lot`, `subject`, `author` and `material` have too many levels, and thus they are not selected.
 
-In addition, we have alrealy built a variable that contains the useful information of `authorstandard`, so we can drop it as well. Similarly, we can drop `Height_in`, `Width_in`, `Surface_Rect`, `Diam_in` and `Surface_Rnd`.
+In addition, we have alrealy built the variables that contains the useful information of `authorstandard` and `winningbidder`, so we can drop them as well. Similarly, we can drop `Height_in`, `Width_in`, `Surface_Rect`, `Diam_in` and `Surface_Rnd`.
 
 ```{r}
 # choose variables
 paintings_train_new <- paintings_train_new %>% 
-  select(-authorstandard, -sale, -lot, -price, -count, -subject, -author, -winningbidder, -Interm, -Height_in, -Width_in, -Surface_Rect, -Diam_in, -Surface_Rnd, -material, -materialCat)
+  select(-winningbidder, -authorstandard, -sale, -lot, -price, -count, -subject, -author, -Interm, -Height_in, -Width_in, -Surface_Rect, -Diam_in, -Surface_Rnd, -material, -materialCat)
 ```
 
 Since there are some missing values in variable `Surface` and `ratio`, we need to deal with them.
@@ -136,15 +139,15 @@ for(i in c(1:7, 9:25)){
 }
 ```
 
-```{r, fig.height = 20, fig.width = 16, fig.align = "center", fig.cap = "Plots of predictors versus logprice"}
+```{r, fig.height = 24, fig.width = 16, fig.align = "center", fig.cap = "Plots of predictors versus logprice"}
 # scatterplot
-par(mfrow = c(5, 4))
-for(i in 26:45){
+par(mfrow = c(6, 4))
+for(i in 26:46){
   plot(paintings_train_new[,i], paintings_train_new[, 8], xlab = colnames(paintings_train_new)[i], ylab = "logprice", cex.axis = 2.5, cex.lab = 2.5)
 }
 ```
 
-Since the points of `Surface`, `nfigures`, `n` and `ratio` are clustered at the beginning of x axis, we can do log transformation to the corresponding predictors to see their relationship with `logprice`.
+Since the points of `Surface`, `nfigures`, `n_author` and `n_bidder` are clustered at the beginning of x axis, we can do log transformation to the corresponding predictors to see their relationship with `logprice`.
 
 ```{r}
 summary(paintings_train_new[, c(15, 17, 44:45)])
@@ -172,11 +175,11 @@ In the first model predict the auction price `price` using the transformation `l
 
 ### version 1 (using random forest)
 
-From the result of random forest, we can choose $17$ variables.
+From the result of random forest, we can choose $16$ variables.
 
 ```{r, echo = TRUE, cache = TRUE}
 # full model
-model_full <- lm(logprice ~ (position + dealer + year + origin_author + origin_cat + school_pntg + winningbiddertype + endbuyer + type_intermed + Shape + Surface + mat + paired + finished + lrgfont + n + ratio)^2, data = paintings_train_new)
+model_full <- lm(logprice ~ (position + dealer + year + origin_author + origin_cat + winningbiddertype + endbuyer + type_intermed + Surface + mat + paired + finished + lrgfont + n_author + n_bidder + ratio)^2, data = paintings_train_new)
 
 # BIC
 model_bic <- step(model_full, k = log(nobs(model_full)), direction = "both", trace = F)
