@@ -1,0 +1,279 @@
+---
+title: "Final Data Analysis Project"
+date: "See Parts for Write-Up due Dates"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+    fig_caption: TRUE
+header-includes:  
+  \usepackage{float} 
+  \floatplacement{figure}{H}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+
+For this project you will take the role of a consultant hired by an Art historian to explore what drove prices of paintings in 18th century Paris.  They have provided you with auction price data from 1764-1780 on the sales (seller/buyer), painter, and other characteristics of paintings. 
+
+## About the Data Analysis Project
+
+The art historian would like to know what factors drove prices of painting, which paintings might be overvalued and which are undervalued.   It is up to you to decide what methods you want to use (frequentist or Bayesian or a combination) to answer these questions, and implement them to help to identify undervalued and overvalued paintings, as well as which features and possible interactions are at play.
+
+You will have three data sets: a subset for training, a subset for testing, and a third subset for validation. You will be asked to do data exploration and build your model (or models) initially using only the training data. Then, you will test your model on the testing data, and finally validate using the validation data. We are challenging you to keep your analysis experience realistic, and in a realistic scenario you would not have access to all three of these data sets at once.  You will be able to see on our scoreboard how well your team is doing based on its predictive performance on the testing data.  After your project is turned in you will see the final score on the validation set.   
+
+All members of the team should contribute equally and may be asked to answer any questions about the analysis at the final presentation.
+
+*For your analysis create a new Rmd named "project-I.Rmd" for part I
+and update accordingly rather than editing this.  Your write up should not have any of the instructions, for example. Figures should be labeled appropriately and report numbers using significant digits.  This file may be updated so do not edit this document.*
+
+## Code:
+
+In your write up your code should be hidden (`echo = FALSE`) so that your document is neat and easy to read. However your document should include all your code such that if I re-knit your Rmd file I should be able to obtain the results you presented.   If there is any code that you wish to highlight you may included it, but it should contribute significantly to your write up that should be directed to the art historian.
+
+see Due dates in Sakai/Calendar for submissions
+
+### Read in Training Data
+
+To get started read in the training data:
+
+```{r read-data, echo=TRUE}
+load("paintings_train.Rdata")
+load("paintings_test.Rdata")
+```
+
+The Code Book is in the file `paris_paintings.md` provides more information about the data.
+
+## Part I: Simple Model 
+
+```{r packages}
+suppressMessages(library(GGally))
+suppressMessages(library(dplyr))
+suppressMessages(library(mice))
+suppressMessages(library(caret))
+```
+
+### EDA
+
+Using EDA and any numerical summaries get to know the data -  identify what you might consider the 10 best variables for predicting `logprice` using scatterplots with other variables represented using colors or symbols, scatterplot matrices or conditioning plots.
+
+
+```{r}
+# collinearity
+table(paintings_train$Interm, paintings_train$type_intermed)
+table(paintings_train$mat, paintings_train$materialCat)
+```
+
+Therefore, we can drop `Interm` and `materialCat` due to perfect collinearity.
+
+```{r, echo = TRUE}
+# missing randomly or not
+missing <- lm(paintings_train$logprice ~ paintings_train$winningbiddertype=="")
+summary(missing)
+```
+
+This indicates that `winningbiddertype` is not missing purely randomly and that there is a strong case for selective non-response. Similarly, `endbuyer`, `type_intermed`, `material` and `mat` are not missing purely randomly either. So we impute "n/a" into `winningbiddertype`, `endbuyer`, `type_intermed`, `Shape`, `material` and `mat` to replace "" and "-" as a new category.
+
+We can drop `price` and `count` based on their meanings, with the former being another type of our response and the latter being completely useless since it is the same for all observations.
+
+Besides, `sale`, `lot`, `subject`, `author` and `material` have too many levels, and thus they are not selected.
+
+In addition, we have alrealy built the variables that contains the useful information of `authorstandard` and `winningbidder`, so we can drop them as well. Similarly, we can drop `Height_in`, `Width_in`, `Surface_Rect`, `Diam_in` and `Surface_Rnd`.
+
+```{r clean data, warning = FALSE}
+paintings_train_new <- paintings_train
+
+# replace blank space and NA of categorical variables with n/a
+paintings_train_new[, c(4, 6:9, 12:22, 25, 27:28, 30:32, 34:59)] <- as.data.frame(sapply(paintings_train_new[, c(4, 6:9, 12:22, 25, 27:28, 30:32, 34:59)], function(x) ifelse(x == "" | x == "-", "n/a", x)))
+
+# clean position
+paintings_train_new <- paintings_train_new[-which(paintings_train_new$position > 1),]
+
+# clean Shape
+paintings_train_new[which(paintings_train_new$Shape == "ronde"), 28] <- "round"
+paintings_train_new[which(paintings_train_new$Shape == "ovale"), 28] <- "oval"
+
+# choose variables
+paintings_train_new <- paintings_train_new %>% 
+  select(-winningbidder, -authorstandard, -sale, -lot, -price, -count, -subject, -author, -Interm, -Surface_Rect, -Surface_Rnd, -material, -materialCat)
+
+# delete repeating data
+paintings_train_new <- unique(paintings_train_new)
+
+# imputate missing
+set.seed(103)
+imputed <- mice(paintings_train_new, m = 5)
+paintings_train_new <- mice::complete(imputed)
+
+# clean Surface
+paintings_train_new <- paintings_train_new[-which(paintings_train_new$Surface == 0),]
+```
+
+```{r, fig.height = 24, fig.width = 16, fig.align = "center"}
+# scatterplot
+par(mfrow = c(6, 4))
+for(i in c(1:7, 9:25)){
+  plot(paintings_train_new[, i], paintings_train_new[, 8], xlab = colnames(paintings_train_new)[i], ylab = "logprice", cex.axis = 2, cex.lab = 2)
+}
+```
+
+```{r, fig.height = 24, fig.width = 16, fig.align = "center", fig.cap = "Plots of predictors versus logprice"}
+# scatterplot
+par(mfrow = c(6, 4))
+for(i in 26:46){
+  plot(paintings_train_new[, i], paintings_train_new[, 8], xlab = colnames(paintings_train_new)[i], ylab = "logprice", cex.axis = 2, cex.lab = 2)
+}
+```
+
+Since the points of `Surface` are clustered at the beginning of x axis, we can do log transformation to it to see its relationship with `logprice`.
+
+```{r, fig.height = 4, fig.width = 4, fig.align = "center", fig.cap = "Plots of log Surface versus logprice"}
+plot(log(paintings_train_new[, 15] + 1), paintings_train_new[, 8], xlab = paste("log(", colnames(paintings_train_new)[15], ")", sep = ""), ylab = "logprice")
+```
+
+```{r, cache = TRUE, fig.cap = "Variable Importance Measures in Random Forests"}
+# log transformation to Surface
+paintings_train_new$Surface <- log(paintings_train_new$Surface)
+colnames(paintings_train_new)[18] <- "log_Surface"
+
+# random forest
+model_rf <- randomForest(logprice ~ .,data = paintings_train_new, mtry = 7, importance = TRUE)
+varImpPlot(model_rf, n.var = 15, main = "Variable Importance Measures")
+```
+
+
+### Build your first model
+
+In the first model predict the auction price `price` using the transformation `logprice` using at least 10 and up to 20 predictors and any interactions to build a model using linear regression. You may use stepwise model selection to simplify the model using AIC and/or BIC.  For reference, we will fit the null model to initialize the leaderboard, but replace model1 with your recommended model.
+
+### version 1 (using random forest)
+
+From the result of random forest, we can choose $12$ variables. (drop `diff_origin` since it's perfectly collinear with `origin_author` and `origin_cat`; drop `winningbiddertype` and `mat` since there are too many categories in them)
+
+```{r, echo = TRUE, cache = TRUE}
+# full model
+model_full <- lm(logprice ~ (position + dealer + year + origin_author + origin_cat + authorstyle + endbuyer + type_intermed + log_Surface + finished + lrgfont + nfigures)^2, data = paintings_train_new)
+
+# BIC
+model_bic <- step(model_full, k = log(nobs(model_full)), direction = "both", trace = F)
+summary(model_bic)
+```
+
+```{r, warning = FALSE}
+# 10-fold cross validation
+set.seed(103)
+train(logprice ~ dealer + year + origin_author + endbuyer + type_intermed + log_Surface + finished + lrgfont + year:endbuyer, 
+      data = paintings_train_new, 
+      method = "lm",
+      trControl = trainControl(method = "cv", number = 10))
+```
+
+10-fold cross validation RMSE is $1.243051$.
+
+```{r, warning = FALSE, fig.height = 8, fig.width = 8, fig.align = "center", fig.cap = "Diagnostic Plots"}
+model1 <- model_bic
+
+# diagnostic plots
+par(mfrow = c(2, 2))
+plot(model1)
+```
+
+Save predictions and intervals. 
+
+```{r predict-model1, echo = FALSE, warning = FALSE}
+# test data
+paintings_test_new <- paintings_test
+
+# replace blank space and NA of categorical variables with n/a
+paintings_test_new[, c(4, 6:9, 12:22, 25, 27:28, 30:32, 34:59)] <- as.data.frame(sapply(paintings_test_new[, c(4, 6:9, 12:22, 25, 27:28, 30:32, 34:59)], function(x) ifelse(paste(x) == "" | paste(x) == "-", "n/a", paste(x))))
+
+# clean position
+paintings_test_new <- paintings_test_new[-which(paintings_test_new$position > 1),]
+
+# clean Shape
+paintings_test_new[which(paintings_test_new$Shape == "ronde"), 28] <- "round"
+paintings_test_new[which(paintings_test_new$Shape == "ovale"), 28] <- "oval"
+
+# choose variables
+paintings_test_new <- paintings_test_new %>% 
+  select(-winningbidder, -authorstandard, -sale, -lot, -price, -count, -subject, -author, -Interm, -Surface_Rect, -Surface_Rnd, -material, -materialCat)
+
+# delete repeating data
+paintings_test_new <- unique(paintings_test_new)
+
+# imputate missing
+set.seed(103)
+imputed <- mice(paintings_test_new, m = 5)
+paintings_test_new <- mice::complete(imputed)
+
+# clean Surface
+paintings_test_new <- paintings_test_new[-which(paintings_test_new$Surface == 0),]
+
+# log transformation to Surface
+paintings_test_new$Surface <- log(paintings_test_new$Surface)
+colnames(paintings_test_new)[18] <- "log_Surface"
+
+# prediction
+predictions <- as.data.frame(
+  exp(predict(model1, newdata = paintings_test_new, 
+              interval = "pred")))
+save(predictions, file="predict-test.Rdata")
+```
+
+
+### Part I Write up *Last day to submit is Dec 7 by 5; accepted until Dec 6 (5 points off if late)*
+
+Once you are satisfied with your model, provide a write up of your data analysis project in a new Rmd file/pdf file: `Part-I-Writeup.Rmd` by copying over salient parts of your R notebook. The written assignment consists of five parts:
+
+1. Introduction: Summary of problem and objectives (5 points)
+
+2. Exploratory data analysis (10 points): must include three correctly labeled graphs and an explanation that highlight the most important features that went into your model building.
+
+3. Development and assessment of an initial model (10 points)
+
+* Initial model: must include a summary table and an explanation/discussion for variable selection and overall amount of variation explained. 
+
+* Model selection: must include a discussion
+
+* Residual: must include residual plot(s) and a discussion.  
+
+* Variables: must include table of coefficients and CI
+
+4. Summary and Conclusions (10 points)
+
+What is the (median) price for the "baseline" category if there are categorical or dummy variables in the model (add CI's)?  (be sure to include units!) Highlight important findings and potential limitations of your model.  Does it appear that interactions are important?  What are the most important variables and/or interactions?  Provide interprations of how the most important variables influence the (median) price giving a range (CI).  Correct interpretation of coefficients for the log model desirable for full points.
+
+Provide recommendations for the art historian about features or combination of features to look for to find the most valuable paintings.
+
+_Points will be deducted for code chunks that should not be included, etc._
+
+*Upload write up  to Sakai any time before Dec 7th*
+
+###  Evaluation on test data for Part I
+
+Once your write up is submitted, your models will be evaluated on the following criteria based on predictions  on the test data (20 points): 
+
+* Bias:  Average (Yhat-Y)  positive values indicate the model tends to overestimate price (on average) while negative values indicate the model tends to underestimate price.
+
+* Maximum Deviation:  Max |Y-Yhat| -  identifies the worst prediction  made in the validation data set.
+
+* Mean Absolute Deviation:  Average |Y-Yhat| - the average error (regardless of sign).
+
+* Root Mean Square Error: Sqrt Average (Y-Yhat)^2
+
+* Coverage:  Average( lwr < Y < upr) 
+
+In order to have a passing wercker badge, your file for predictions needs to be the same length as the test data, with three columns:  fitted values, lower CI and upper CI values in that order with names, *fit*, *lwr*, and *upr* respectively such as in the code chunk below. 
+
+Save predictions and intervals.  
+```{r predict-model-final, echo=FALSE, include=FALSE}
+# change model1 or update as needed
+predictions <- as.data.frame(
+  exp(predict(model1, newdata = paintings_test_new, 
+              interval = "pred")))
+save(predictions, file="predict-test.Rdata")
+```
+
+You will be able to see your scores on the score board.  They will be initialized by a prediction based on the mean in the training data.
