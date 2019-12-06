@@ -53,6 +53,7 @@ suppressMessages(library(GGally))
 suppressMessages(library(dplyr))
 suppressMessages(library(mice))
 suppressMessages(library(caret))
+suppressMessages(library(knitr))
 ```
 
 ### EDA
@@ -80,7 +81,7 @@ We can drop `price` and `count` based on their meanings, with the former being a
 
 Besides, `sale`, `lot`, `subject`, `author` and `material` have too many levels, and thus they are not selected.
 
-In addition, we have alrealy built the variables that contains the useful information of `authorstandard` and `winningbidder`, so we can drop them as well. Similarly, we can drop `Height_in`, `Width_in`, `Surface_Rect`, `Diam_in` and `Surface_Rnd`.
+In addition, we have alrealy built the variables that contains the useful information of `authorstandard` and `winningbidder`, so we can drop them as well. Similarly, we can drop `Surface_Rect` and `Surface_Rnd`.
 
 ```{r clean data, warning = FALSE}
 paintings_train_new <- paintings_train
@@ -137,16 +138,22 @@ colnames(paintings_train_new)[18] <- "log_Surface"
 
 In the first model predict the auction price `price` using the transformation `logprice` using at least 10 and up to 20 predictors and any interactions to build a model using linear regression. You may use stepwise model selection to simplify the model using AIC and/or BIC.  For reference, we will fit the null model to initialize the leaderboard, but replace model1 with your recommended model.
 
-### version 1 (using random forest)
+### version 1
 
 From the result of random forest, we can choose $12$ variables. (drop `diff_origin` since it's perfectly collinear with `origin_author` and `origin_cat`; drop `winningbiddertype` and `mat` since there are too many categories in them)
 
 ```{r, echo = TRUE, cache = TRUE}
 # full model
 model_full <- lm(logprice ~ (position + dealer + year + origin_author + origin_cat + authorstyle + endbuyer + type_intermed + log_Surface + finished + lrgfont + nfigures)^2, data = paintings_train_new)
-# BIC
-model_bic <- step(model_full, k = log(nobs(model_full)), direction = "both", trace = F)
-summary(model_bic)
+
+paintings_train_new2=paintings_train_new
+paintings_train_new2$nfigures[which(paintings_train_new2$nfigures > 0)] <- 1
+paintings_train_new2$nfigures <- as.factor(paintings_train_new2$nfigures)
+#final model
+ model_test <- lm(logprice ~ (dealer + year + origin_author + origin_cat + authorstyle + endbuyer + type_intermed + log_Surface + finished + lrgfont + Shape + winningbiddertype)^2, data = paintings_train_new2)
+ model_bic2 <- step(model_test, k = log(nobs(model_test)), direction = "both", trace = F)
+
+
 ```
 
 ```{r, warning = FALSE}
@@ -161,7 +168,7 @@ train(logprice ~ dealer + year + origin_author + endbuyer + type_intermed + log_
 10-fold cross validation RMSE is $1.243051$.
 
 ```{r, warning = FALSE, fig.height = 8, fig.width = 8, fig.align = "center", fig.cap = "Diagnostic Plots"}
-model1 <- model_bic
+model1 <- model_bic2
 # diagnostic plots
 par(mfrow = c(2, 2))
 plot(model1)
@@ -212,33 +219,29 @@ Once you are satisfied with your model, provide a write up of your data analysis
 
 * Variables: must include table of coefficients and CI
 
+
+
 ```{r}
 summary(model1)
 anova(model1)
 ```
 For our initial model, we first decide to incorporate all the important predictors in EDA, then add some extra predictors by the following reason.
-1. position: 
 
-2. origin_cat: without knowning the paintings before the auction, the buyers can only get to know the origin of paintings through the dealer's classification. For the well investigated painting, the dealer will classify the painting correctly. For unknown painting, neither dealer and buyer know the origin. So we think origin_cat would be helpful for our model beside origin_author. And we use an anova test to check that.
+1. origin_cat: without knowning the paintings before the auction, the buyers can only get to know the origin of paintings through the dealer's classification. For the well investigated painting, the dealer will classify the painting correctly. For unknown painting, neither dealer and buyer know the origin. So majority of the buyers will know the origin through the dealer. So we think origin_cat would be helpful for our model beside origin_author. And we use an anova test to check that.
 ```{r}
 ano_data=paintings_train_new%>%select(logprice,origin_cat)
 summary(aov(logprice~origin_cat,data=ano_data))
 ```
 In here, we set the logprice to multiple groups according to the origin_cat, and use anova to compare if their group means are same or dfferent. Since the p_value is smaller than 0.05. we can state that the means are differnet across groups. So we decide to use origin_author
 
-3. authorstyle: For this predictor, originally there are many n/a exist. But we think n/a represent a special category. By looking at the barplot of author_style,  we can see the means of each group are differnet. So we choose this predictor to help us predict the outcome.
 
-4.type_intermed: By intuition, we think the type of intermediary plays an important role in the sale price.
-Since differnet type of intermediaries sell paintings for differnet purposes and the price will flutuate based on that. And the barplot of type_intermed can support our idea.
-
-5. finished:
-
-6. nfigures:
+2. finished: we believe that whether a painting is finished or not will affect the the price of the sale.
+And the plot of the finished can also prove our thinking. So we choose this predictor based on both commen sense and plot analysis.
 
 Secondly, we put the choosed main predictors and all their interactions into a full model. Then we use BIC to
 choose the important predictors and interactios for us.
 
-Finally, in the initial model, we have 8 main predictors and 5 interactions. Roughly 60% variation of dependent variables are explained by this model. By looking at the anova table of the model, all of the variables are significant at the 5% level, which indicate the variables in the model are reasonable.
+Finally, in the initial model, we have 8 main predictors and 1 interactions. Roughly 60% variation of dependent variables are explained by this model. By looking at the anova table of the model, all of the variables are significant at the 5% level, which indicate the variables in the model are reasonable.
 
 ```{r, warning = FALSE, fig.height = 8, fig.width = 8, fig.align = "center", fig.cap = "Diagnostic Plots"}
 par(mfrow = c(2, 2))
@@ -278,17 +281,25 @@ _Points will be deducted for code chunks that should not be included, etc._
 
 The baseline price is $e^{-150}$ livres, whcih is approximately 0 livres. But this value is not meaningful, as it represents the price of a painting without dealer, not sale in any year, and no buyer,etc.
 
-According to the coefficient table we get above, predict year and endbuyer have huge impact on the price sale.
-For the year, althouth its coefficient is not large compared to others, the big numeric value itself will have
-impact on the price. Beside the year, for the dummy variable, endbuyer is another important predictor that affect the price most.
+According to the coefficient table we get above, predictor year and endbuyer have huge impact on the price sale.For the year, althouth its coefficient is not large compared to others, the big numeric value itself will have impact on the price. Beside the year, for the dummy variable, endbuyer is another important predictor that affect the price most.
 
 The most two important variables are year and endbuyer. And the only interaction we have is the interaction between year and endbuyer.So it's natural to say the interaction is also improtant.
 
-Our model also has limitations. we choose the main predictors by ourselves so we may ignore some important predictors. In the model, the predictor year, endbuyer, and year:endbuyer looks a little over important compard to all other variables, Which means in certain degree we can just predict the price by using 3 variables. it's questionalble for such a large data set. And we only use the linear model to fit the data, resulting a few large coefficents. We may use nonlinear model to shrink the coefficient in the following part. There may even exist some more complicated relationship in the data such as polynomial. So we still need to explore that.
+Our model also has limitations. we choose the main predictors by ourselves so we may ignore some important predictors. In the initial model, the predictor year, endbuyer, and year:endbuyer looks a little over important compard to all other variables, Which means in certain degree we can just predict the price by using 3 variables. it's questionalble for such a large data set. And we only use the linear model to fit the data, resulting a few large coefficents and standard deviations. Furthermore, the big estimates value make us hard to interpreate the model to the art historian.So we may use nonlinear model to shrink the coefficient in the following part. There may even exist some more complicated relationship in the data such as polynomial. So we still need to explore that.
 
 For every one year after the previous year, we expect price of the painting will be $e^{0.09}$ times higher, and we are 95% confident that the fluction is between $e^{-0.07}$ to $e^{0.24}$, which is from 0.93 to 1.27.
 
-Given all other conditions unchanged(eg:same dealer, same year,same origin,etc.), we expect the price of painting will be $e^{-91}$ times higher if the buyer is a collector. And we are 95% confident that the price fluction will be between $e^{-375}$ and $e^{-193}$ times higher. 
+Given all other conditions unchanged(eg:same dealer, same year,same origin,etc.), we expect the price of painting will be $e^{-91}$ times higher if the buyer is a collector. And we are 95% confident that the price fluction will be between $e^{-375}$ and $e^{193}$ times higher.
+
+Given all other conditions unchanged(eg:same dealer, same year,same origin,etc.), we expect the price of painting will be $e^{13}$ times higher if the buyer is a dealer And we are 95% confident that the price fluction will be between $e^{-272}$ and $e^{398}$ times higher. 
+
+Given all other conditions unchanged(eg:same dealer, same year,same origin,etc.), we expect the price of painting will be $e^{-247}$ times higher if the buyer is expert organizing the sale. And we are 95% confident that the price fluction will be between $e^{-537}$ and $e^{43}$ times higher. 
+
+Given all other conditions unchanged(eg:same dealer, same year,same origin,etc.), we expect the price of painting will be $e^{-34}$ times higher if the buyer is unknown person. And we are 95% confident that the price fluction will be between $e^{-318}$ and $e^{250}$ times higher. 
+
+Given all other conditions unchanged(eg:same dealer, same year,same origin,etc.), we expect the price of painting will be $e^{-40}$ times higher if the buyer is person without information. And we are 95% confident that the price fluction will be between $e^{-329}$ and $e^{248}$ times higher. 
+
+So we sugget the art hostorians that the painting bought by dealer with larger year will have a high value.
 
 
 
