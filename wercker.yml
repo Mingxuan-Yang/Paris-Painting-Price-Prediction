@@ -12,7 +12,7 @@ build:
       code: |
           wget --quiet --no-check-certificate http://www.stat.duke.edu/courses/Fall19/sta521/Final_Project_Scoring/Final_Scoring.R
           Rscript Final_Scoring.R $TEAM $MONGO_URL $TESTDATA_URL
- - script:
+    - script:
       name: Validation Check
       code: |
           wget --quiet --no-check-certificate http://www.stat.duke.edu/courses/Fall19/sta521/Final_Project_Scoring/Validation_Check.R
