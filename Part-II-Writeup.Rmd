@@ -1,0 +1,288 @@
+---
+title: "Final Data Analysis Project"
+date:  "See Parts for Write-Up due Dates"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r packages}
+suppressMessages(library(knitr))
+suppressMessages(library(GGally))
+suppressMessages(library(plyr))
+suppressMessages(library(dplyr))
+suppressMessages(library(mice))
+suppressMessages(library(randomForest))
+suppressMessages(library(BAS))
+```
+
+```{r, include = FALSE}
+# load data
+load("paintings_train.Rdata")
+load("paintings_test.Rdata")
+
+# mutate a variable that represents ratio of height and width, which equals 1 for circle and square
+paintings_train_new <- paintings_train
+paintings_train_new$ratio <- paintings_train_new$Height_in/paintings_train_new$Width_in
+paintings_train_new[which(paintings_train_new$Diam_in != 0), 60] <- 1
+
+# replace blank space and NA of categorical variables with n/a
+paintings_train_new[, c(4, 6:9, 12:22, 25, 27:28, 30:32, 34:59)] <- as.data.frame(sapply(paintings_train_new[, c(4, 6:9, 12:22, 25, 27:28, 30:32, 34:59)], function(x) ifelse(x == "" | x == "-", "n/a", x)))
+
+# clean position
+paintings_train_new <- paintings_train_new[-which(paintings_train_new$position > 1),]
+
+# clean Shape
+paintings_train_new[which(paintings_train_new$Shape == "ronde"), 28] <- "round"
+paintings_train_new[which(paintings_train_new$Shape == "ovale"), 28] <- "oval"
+
+# choose variables
+paintings_train_new <- paintings_train_new %>% 
+  select(-winningbidder, -authorstandard, -sale, -lot, -price, -count, -subject, -author, -Interm, -Surface_Rect, -Surface_Rnd, -material, -materialCat, -Height_in, -Width_in, -Diam_in)
+
+# delete repeating data
+paintings_train_new <- unique(paintings_train_new)
+
+# imputate missing
+set.seed(103)
+imputed <- mice(paintings_train_new, m = 5)
+paintings_train_new <- mice::complete(imputed)
+
+# clean Surface
+paintings_train_new <- paintings_train_new[-which(paintings_train_new$Surface == 0),]
+
+# clean winningbiddertype
+paintings_train_new$winningbiddertype <- case_when(
+      paintings_train_new$winningbiddertype == "B" ~ "B",
+      paintings_train_new$winningbiddertype == "BB" ~ "B",
+      paintings_train_new$winningbiddertype == "BC" ~ "B",
+      paintings_train_new$winningbiddertype == "C" ~ "C",
+      paintings_train_new$winningbiddertype == "D" ~ "D",
+      paintings_train_new$winningbiddertype == "DB" ~ "D",
+      paintings_train_new$winningbiddertype == "DC" ~ "D",
+      paintings_train_new$winningbiddertype == "DD" ~ "D",
+      paintings_train_new$winningbiddertype == "E" ~ "E",
+      paintings_train_new$winningbiddertype == "EB" ~ "E",
+      paintings_train_new$winningbiddertype == "EBC" ~ "E",
+      paintings_train_new$winningbiddertype == "EC" ~ "E",
+      paintings_train_new$winningbiddertype == "ED" ~ "E",
+      paintings_train_new$winningbiddertype == "U" ~ "n/a",
+      paintings_train_new$winningbiddertype == "n/a" ~ "n/a"
+    )
+paintings_train_new$winningbiddertype <- as.factor(paintings_train_new$winningbiddertype)
+
+# log transformation to Surface
+paintings_train_new$Surface <- log(paintings_train_new$Surface)
+colnames(paintings_train_new)[15] <- "log_Surface"
+```
+
+```{r cache = TRUE}
+# full model
+model_full <- lm(logprice ~ (dealer + year + origin_author + endbuyer + log_Surface + finished + lrgfont + position + winningbiddertype + type_intermed)^2, data = paintings_train_new)
+
+# BIC
+model_bic <- step(model_full, k = log(nobs(model_full)), direction = "both", trace = F)
+summary(model_bic)
+```
+
+```{r}
+model_bas_g <- bas.lm(as.formula(model_bic),
+  data = paintings_train_new,
+  prior = "g-prior",
+  alpha = dim(paintings_train_new)[1],
+  modelprior = uniform(),
+  method = "deterministic")
+coef(model_bas_g)
+summary(model_bas_g)
+plot(model_bas_g, which = 4)
+```
+
+```{r}
+model_bas_jzs <- bas.lm(as.formula(model_bic),
+  data = paintings_train_new,
+  prior = 'JZS',
+  modelprior = uniform(),
+  method = 'MCMC',
+  MCMC.iterations = 100000,
+  thin = 20, 
+  force.heredity = TRUE)
+
+par(mfrow = c(1,2))
+diagnostics(model_bas_jzs)
+```
+
+```{r}
+library(mgcv)
+library(gamclass)
+
+# model
+model_gam <- gam(logprice ~ s(year, k = 17) + s(log_Surface) + s(year, by = winningbiddertype) + dealer + origin_author + endbuyer + finished + lrgfont + winningbiddertype, data = paintings_train_new)
+anova(model_gam)
+
+# residuals
+plot(fitted(model_gam),residuals(model_gam))
+
+# smooth contributions
+plot(model_gam)
+
+# 10-fold cross validation
+gam_cv <- CVgam(as.formula(model_gam), paintings_train_new, nfold = 10)
+sqrt(gam_cv$cvscale)
+```
+
+The result of CVgam contains two components: `GAMscale` and `CV-mse-GAM`. `GAMscale` is the mean squared error of the origianl GAM fit. `CV-mse-GAM` is the mean squared error of the 10 cross-validation GAMs. Since $1.2799$ and $1.3705$ are close to each other, our models are not overfitting.
+
+
+```{r, include = FALSE}
+# load data
+load("paintings_test.Rdata")
+
+# mutate a variable that represents ratio of height and width, which equals 1 for circle and square
+paintings_test_new <- paintings_test
+paintings_test_new$ratio <- paintings_test_new$Height_in/paintings_test_new$Width_in
+paintings_test_new[which(paintings_test_new$Diam_in != 0), 60] <- 1
+
+# replace blank space and NA of categorical variables with n/a
+paintings_test_new[, c(4, 6:9, 12:22, 25, 27:28, 30:32, 34:59)] <- as.data.frame(sapply(paintings_test_new[, c(4, 6:9, 12:22, 25, 27:28, 30:32, 34:59)], function(x) ifelse(x == "" | x == "-", "n/a", x)))
+
+# clean position
+paintings_test_new <- paintings_test_new[-which(paintings_test_new$position > 1),]
+
+# clean Shape
+paintings_test_new[which(paintings_test_new$Shape == "ronde"), 28] <- "round"
+paintings_test_new[which(paintings_test_new$Shape == "ovale"), 28] <- "oval"
+
+# choose variables
+paintings_test_new <- paintings_test_new %>% 
+  select(-winningbidder, -authorstandard, -sale, -lot, -price, -count, -subject, -author, -Interm, -Surface_Rect, -Surface_Rnd, -material, -materialCat, -Height_in, -Width_in, -Diam_in)
+
+# delete repeating data
+paintings_test_new <- unique(paintings_test_new)
+
+# imputate missing
+set.seed(103)
+imputed <- mice(paintings_test_new, m = 5)
+paintings_test_new <- mice::complete(imputed)
+
+# clean Surface
+paintings_test_new <- paintings_test_new[-which(paintings_test_new$Surface == 0),]
+
+# clean winningbiddertype
+paintings_test_new$winningbiddertype <- case_when(
+      paintings_test_new$winningbiddertype == "B" ~ "B",
+      paintings_test_new$winningbiddertype == "BB" ~ "B",
+      paintings_test_new$winningbiddertype == "BC" ~ "B",
+      paintings_test_new$winningbiddertype == "C" ~ "C",
+      paintings_test_new$winningbiddertype == "D" ~ "D",
+      paintings_test_new$winningbiddertype == "DB" ~ "D",
+      paintings_test_new$winningbiddertype == "DC" ~ "D",
+      paintings_test_new$winningbiddertype == "DD" ~ "D",
+      paintings_test_new$winningbiddertype == "E" ~ "E",
+      paintings_test_new$winningbiddertype == "EB" ~ "E",
+      paintings_test_new$winningbiddertype == "EBC" ~ "E",
+      paintings_test_new$winningbiddertype == "EC" ~ "E",
+      paintings_test_new$winningbiddertype == "ED" ~ "E",
+      paintings_test_new$winningbiddertype == "U" ~ "n/a",
+      paintings_test_new$winningbiddertype == "n/a" ~ "n/a"
+    )
+paintings_test_new$winningbiddertype <- as.factor(paintings_test_new$winningbiddertype)
+
+# log transformation to Surface
+paintings_test_new$Surface <- log(paintings_test_new$Surface)
+colnames(paintings_test_new)[15] <- "log_Surface"
+```
+
+```{r}
+# prediction
+pred_gam <- predict.gam(model_gam, paintings_test_new, type="response", se.fit = TRUE)
+
+# prediction interval
+gam_up <- pred_gam$fit + 1.96*pred_gam$se.fit
+gam_low <- pred_gam$fit - 1.96*pred_gam$se.fit
+
+# prediction
+predictions <- data.frame(fit = exp(pred_gam$fit), lwr = exp(gam_low), upr = exp(gam_up))
+save(predictions, file="predict-test.Rdata")
+```
+
+
+## Part II: Complex Model  (start Dec 4th ideally!)
+
+In this part you may go all out for constructing a best fitting model for predicting housing prices using methods that we have covered this semester.  You should feel free to to create any new variables (such as quadratic, interaction, or indicator variables, splines, etc) and try different methods, keeping in mind you should be able to explain your methods and results.
+
+Update your predictions using your complex model to provide point estimates and CI.
+
+```{r predict-model2, echo=FALSE}
+# replace model1 with model2 here
+predictions = as.data.frame(
+  exp(predict(model1, newdata=paintings_test, 
+              interval = "pred")))
+save(predictions, file="predict-test.Rdata")
+```
+
+You may iterate here as much as you like exploring different models until you are satisfied with your results, however keep in mind you must be able to explain your results to the art historian.
+
+### Part II: Write Up
+
+Once you are satisfied with your model, provide a write up of your data analysis project in a new Rmd file/pdf file: `Part-II-Writeup.Rmd` by copying over salient parts of your R notebook and the previous writeup (you should also save the pdf version) The written assignment consists of five parts:
+
+1. Introduction (1 point if improved from before)
+  add previous intro with any edits
+
+2. Exploratory data analysis (1 point if improved from before): 
+   add previous EDA
+   
+3. Discussion of preliminary model Part I (5 points)
+Discuss performance based on leader board results and suggested refinements.
+
+4.  Development of the final model (20 points)
+
+* Final model: must include a summary table
+
+* Variables: must include an explanation
+
+* Variable selection/shrinkage: must use appropriate method and include an explanation
+
+
+* Residual: must include a residual plot and a discussion
+
+* discussion of how prediction intervals obtained 
+
+5. Assessment of the final model (25 points)
+
+
+* Model evaluation: must include an evaluation discussion
+
+* Model testing : must include a discussion
+
+* Model result: must include a selection and discussion of the top 10 valued  paintings in the validation data.
+
+6. Conclusion (10 points): must include a summary of results and a discussion of things learned. Optional what would you do if you had more time.
+
+
+
+### Final Predictions Validation (20 points)
+Create predictions for the validation data from your final model using the dataframe `paintings_validation.Rdata` in your repo.  You may refit your final model to the combined training and test data.  Write predictions out to a file `prediction-validation.Rdata`
+*This should have the same format as the model output in Part I and II!*
+
+
+## Final: Class Presentations and Peer Evaluation
+
+Each Group should prepare 5 slides in their Github repo:  (save as slides.pdf)
+
+* Most interesting graphic  _a picture (painting) is worth a thousand words prize!_  
+
+* Best Model (motivation, how you found it, why you think it is best)
+
+* Best Insights into predicting Price.
+
+* 3 Best Paintings to purchase  (and why) (images are a bonus!)
+
+* Best Team Name/Graphic
+
+We will select winners based on the above criteria and overall performance.
+
+
+Finally your repo should have: `Part-I-Writeup.Rmd`, `Part-I-Writeup.pdf`,  `Part-II-Writeup.Rmd`, `Part-II-Writeup.pdf`,`slides.Rmd` (and whatever output you use for the presentation) and `predict-train.Rdata`,  `predict-test.Rdata` `predict-validation.Rdata`.
