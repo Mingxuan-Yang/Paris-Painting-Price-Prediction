@@ -169,8 +169,8 @@ predictions <- predict(bma, newdata = paintings_test_new, se.fit = TRUE)
 fit <- exp(predictions$fit)
 lwr <- exp(predictions$fit - 1.96 * predictions$se.bma.pred)
 upr <- exp(predictions$fit + 1.96 * predictions$se.bma.pred)
-pred <- data.frame(fit, lwr, upr)
-save(pred, file="predict-test.Rdata")
+predictions <- data.frame(fit, lwr, upr)
+save(predictions, file="predict-test.Rdata")
 ```
 
 ```{r predict-model2, echo = FALSE, warning = FALSE, include = FALSE}
@@ -241,6 +241,6 @@ predictions <- predict(bma, newdata = paintings_val_new, se.fit = TRUE)
 fit <- exp(predictions$fit)
 lwr <- exp(predictions$fit - 1.96 * predictions$se.bma.pred)
 upr <- exp(predictions$fit + 1.96 * predictions$se.bma.pred)
-pred <- data.frame(fit, lwr, upr)
+predictions <- data.frame(fit, lwr, upr)
 save(predictions, file="predict-validation.Rdata")
 ```
