@@ -96,9 +96,9 @@ for(i in 1:50){
 }
 means=colMeans(mean3)
 interval3=c(quantile(means,0.025)-1.96*rmse3,quantile(means,0.975)+1.96*rmse3)
-fit=predict(boost,paintings_test_new,n.trees=5000)
-lwr=interval3[1]
-upr=interval3[2]
+fit=exp(predict(boost,paintings_test_new,n.trees=5000))
+lwr=exp(interval3[1])
+upr=exp(interval3[2])
 predictions=data.frame(fit,lwr,upr)
 save(predictions,file="predict-test.Rdata")
 ```
