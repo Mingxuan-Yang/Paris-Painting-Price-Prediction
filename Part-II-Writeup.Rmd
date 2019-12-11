@@ -94,12 +94,16 @@ bma <- bas.lm(logprice ~ dealer + year + origin_author + endbuyer + log_Surface 
 plot(bma)
 ```
 
-```{r cache = TRUE}
+```{r cache = TRUE, warning=FALSE}
 # full model
 model_test <- lm(logprice ~ (dealer + year + origin_author + endbuyer + log_Surface + finished + lrgfont + type_intermed)^2, data = paintings_train_new)
 
-# AIC
-model1 <- step(model_test, k = log(nobs(model_test)), direction = "both", trace = F)
+# bma
+set.seed(3)
+bma2 <- bas.lm(formula(model_test), paintings_train_new,
+               prior = "JZS", modelprior = uniform(),
+               method = "MCMC", MCMC.iterations = 100000)
+
 ```
 
 ```{r predict-model1, echo = FALSE, warning = FALSE, include = FALSE}
@@ -162,9 +166,21 @@ paintings_test_new$winningbiddertype <- as.factor(paintings_test_new$winningbidd
 ```
 
 ```{r}
-predictions <- as.data.frame(exp(predict(model1, paintings_test_new, interval = "pred")))
+BPM <- predict(bma2, estimator = "BPM")
+variable.names(BPM)
+```
+
+```{r}
+lm.BPM <- lm(logprice ~ dealer + year + origin_author + endbuyer + log_Surface + finished
+             + lrgfont + type_intermed + dealer:year + year:endbuyer + year:lrgfont + year:type_intermed + log_Surface:lrgfont + finished:lrgfont, data = paintings_train_new)
+```
+
+```{r}
+predictions <- as.data.frame(exp(predict(lm.BPM, paintings_test_new,
+                                         interval = "pred")))
 save(predictions, file="predict-test.Rdata")
 ```
+
 
 ```{r predict-model-final, cache=TRUE, echo=FALSE, include=FALSE}
 # change model1 or update as needed
