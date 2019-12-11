@@ -1,0 +1,178 @@
+---
+title: "part2"
+author: "Machao Deng"
+date: "2019Äê12ÔÂ11ÈÕ"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tree)
+library(randomForest)
+library(gbm)
+```
+
+
+## Part II: Complex Model  (start Dec 4th ideally!)
+
+In this part you may go all out for constructing a best fitting model for predicting housing prices using methods that we have covered this semester.  You should feel free to to create any new variables (such as quadratic, interaction, or indicator variables, splines, etc) and try different methods, keeping in mind you should be able to explain your methods and results.
+
+
+single tree
+```{r}
+set.seed(3)
+tree=tree(logprice~.,data=paintings_train_new)
+summary(tree)
+yhat1=predict(tree,paintings_train_new)
+rmse1=mean((yhat1-paintings_train_new$logprice)^2)
+
+#as we can see, the tree with 13 nodes has the samllest deviance, so we don't need to delete the variables
+cv.tree=cv.tree(tree)
+cv.tree
+
+#then, we use bootstrap to calculate the prediction interval
+mean=c()
+for(i in 1:100){
+  bootstrap=sample_n(paintings_train_new,1300,replace = TRUE)
+  bootstrap_tree=tree(logprice~.,data=bootstrap)
+  yhat=predict(bootstrap_tree,bootstrap)
+  mean=c(mean,yhat)
+}
+interval1=c(quantile(mean,0.25)-1.96*rmse1,quantile(mean,0.975)+1.96*rmse1)
+```
+
+
+
+random forest
+```{r}
+set.seed(3)
+forest=randomForest(logprice~.,data=paintings_train_new,mtry=7,importance=TRUE)
+importance(forest)
+yhat2=predict(forest,paintings_train_new)
+rmse2=mean((yhat2-paintings_train_new$logprice)^2)
+
+#bootstrap to calculate the prediction interval
+mean2=c()
+for(i in 1:100){
+  bootstrap=sample_n(paintings_train_new,1300,replace = TRUE)
+  bootstrap_tree=randomForest(logprice~.,data=bootstrap,mtry=7,importance=TRUE)
+  yhat=predict(bootstrap_tree,bootstrap)
+  mean2=c(mean2,yhat)
+}
+interval2=c(quantile(mean2,0.025)-1.96*rmse2,quantile(mean2,0.975)+1.96*rmse2)
+```
+
+boosting
+```{r}
+lambda=seq(0,1,by=0.005)
+RMSE=c()
+# find the best lambda for boosting
+for(i in 1:length(lambda)){
+  boost=gbm(logprice~.,data=paintings_train_new,distribution = "gaussian",n.trees = 5000,
+            interaction.depth=4,shrinkage=lambda[i] )
+  yhat=predict(boost,paintings_train_new,n.trees=5000)
+  rmse=mean((yhat-paintings_train_new$logprice)^2)
+  RMSE=c(RMSE,rmse)
+}
+lambda[which.min(RMSE)]
+RMSE[which.min(RMSE)]
+
+boost=gbm(logprice~.,data=paintings_train_new,distribution = "gaussian",n.trees = 5000,
+            interaction.depth=4,shrinkage=0.735 )
+yhat3=predict(boost,paintings_train_new,n.trees = 5000)
+rmse3=mean((yhat3-paintings_train_new$logprice)^2)
+
+#bootstrap to get prediction interval
+mean3=c()
+for(i in 1:50){
+  boost=gbm(logprice~.,data=paintings_train_new,distribution = "gaussian",n.trees = 5000,
+            interaction.depth=4,shrinkage=0.735 )
+  yhat=predict(boost,paintings_test_new,n.trees=5000)
+  mean3=c(mean3,yhat)
+}
+interval3=c(quantile(mean3,0.025)-1.96*rmse3,quantile(mean3,0.975)+1.96*rmse3)
+```
+
+
+
+
+
+
+
+Update your predictions using your complex model to provide point estimates and CI.
+
+```{r predict-model2, echo=FALSE}
+# replace model1 with model2 here
+predictions = as.data.frame(
+  exp(predict(model1, newdata=paintings_test, 
+              interval = "pred")))
+save(predictions, file="predict-test.Rdata")
+```
+
+You may iterate here as much as you like exploring different models until you are satisfied with your results, however keep in mind you must be able to explain your results to the art historian.
+
+### Part II: Write Up
+
+Once you are satisfied with your model, provide a write up of your data analysis project in a new Rmd file/pdf file: `Part-II-Writeup.Rmd` by copying over salient parts of your R notebook and the previous writeup (you should also save the pdf version) The written assignment consists of five parts:
+
+1. Introduction (1 point if improved from before)
+  add previous intro with any edits
+
+2. Exploratory data analysis (1 point if improved from before): 
+   add previous EDA
+   
+3. Discussion of preliminary model Part I (5 points)
+Discuss performance based on leader board results and suggested refinements.
+
+4.  Development of the final model (20 points)
+
+* Final model: must include a summary table
+
+* Variables: must include an explanation
+
+* Variable selection/shrinkage: must use appropriate method and include an explanation
+
+
+* Residual: must include a residual plot and a discussion
+
+* discussion of how prediction intervals obtained 
+
+5. Assessment of the final model (25 points)
+
+
+* Model evaluation: must include an evaluation discussion
+
+* Model testing : must include a discussion
+
+* Model result: must include a selection and discussion of the top 10 valued  paintings in the validation data.
+
+6. Conclusion (10 points): must include a summary of results and a discussion of things learned. Optional what would you do if you had more time.
+
+
+
+### Final Predictions Validation (20 points)
+Create predictions for the validation data from your final model using the dataframe `paintings_validation.Rdata` in your repo.  You may refit your final model to the combined training and test data.  Write predictions out to a file `prediction-validation.Rdata`
+*This should have the same format as the model output in Part I and II!*
+
+
+## Final: Class Presentations and Peer Evaluation
+
+Each Group should prepare 5 slides in their Github repo:  (save as slides.pdf)
+
+* Most interesting graphic  _a picture (painting) is worth a thousand words prize!_  
+
+* Best Model (motivation, how you found it, why you think it is best)
+
+* Best Insights into predicting Price.
+
+* 3 Best Paintings to purchase  (and why) (images are a bonus!)
+
+* Best Team Name/Graphic
+
+We will select winners based on the above criteria and overall performance.
+
+
+Finally your repo should have: `Part-I-Writeup.Rmd`, `Part-I-Writeup.pdf`,  `Part-II-Writeup.Rmd`, `Part-II-Writeup.pdf`,`slides.Rmd` (and whatever output you use for the presentation) and `predict-train.Rdata`,  `predict-test.Rdata` `predict-validation.Rdata`.
