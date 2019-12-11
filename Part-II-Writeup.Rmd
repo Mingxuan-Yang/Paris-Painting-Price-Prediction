@@ -165,18 +165,18 @@ paintings_test_new$winningbiddertype <- case_when(
 paintings_test_new$winningbiddertype <- as.factor(paintings_test_new$winningbiddertype)
 ```
 
-```{r}
-BPM <- predict(bma2, estimator = "BPM")
-variable.names(BPM)
+```{r warning=FALSE}
+MPM <- predict(bma2, estimator = "MPM")
+variable.names(MPM)
 ```
 
 ```{r}
-lm.BPM <- lm(logprice ~ dealer + year + origin_author + endbuyer + log_Surface + finished
-             + lrgfont + type_intermed + dealer:year + year:endbuyer + year:lrgfont + year:type_intermed + log_Surface:lrgfont + finished:lrgfont, data = paintings_train_new)
+lm.MPM <- lm(logprice ~ dealer + year + origin_author + endbuyer + log_Surface + finished
+             + lrgfont + type_intermed + year:endbuyer, data = paintings_train_new)
 ```
 
 ```{r}
-predictions <- as.data.frame(exp(predict(lm.BPM, paintings_test_new,
+predictions <- as.data.frame(exp(predict(lm.MPM, paintings_test_new,
                                          interval = "pred")))
 save(predictions, file="predict-test.Rdata")
 ```
