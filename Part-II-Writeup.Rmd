@@ -87,18 +87,19 @@ colnames(paintings_train_new)[15] <- "log_Surface"
 ```
 
 ```{r cache = TRUE}
-# full model
-model_test <- lm(logprice ~ (dealer + year + origin_author + endbuyer + log_Surface + finished + lrgfont + position + type_intermed)^2, data = paintings_train_new)
-
-# BIC
-model1 <- step(model_test, k = log(nobs(model_test)), direction = "both", trace = F)
+set.seed(3)
+bma <- bas.lm(logprice ~ dealer + year + origin_author + endbuyer + log_Surface + finished + lrgfont + position + type_intermed + winningbiddertype, paintings_train_new,
+              prior="g-prior", alpha = dim(paintings_train_new)[1],
+              modelprior=uniform(), method="MCMC", MCMC.iterations = 100000)
+plot(bma)
 ```
 
 ```{r cache = TRUE}
-set.seed(3)
-bma <- bas.lm(formula(model1), paintings_train_new,
-              prior="g-prior", alpha = dim(paintings_train_new)[1],
-              modelprior=uniform(), method="deterministic")
+# full model
+model_test <- lm(logprice ~ (dealer + year + origin_author + endbuyer + log_Surface + finished + lrgfont + type_intermed)^2, data = paintings_train_new)
+
+# AIC
+model1 <- step(model_test, k = log(nobs(model_test)), direction = "both", trace = F)
 ```
 
 ```{r predict-model1, echo = FALSE, warning = FALSE, include = FALSE}
@@ -158,6 +159,11 @@ paintings_test_new$winningbiddertype <- case_when(
       paintings_test_new$winningbiddertype == "n/a" ~ "n/a"
     )
 paintings_test_new$winningbiddertype <- as.factor(paintings_test_new$winningbiddertype)
+```
+
+```{r}
+predictions <- as.data.frame(exp(predict(model1, paintings_test_new, interval = "pred")))
+save(predictions, file="predict-test.Rdata")
 ```
 
 ```{r predict-model-final, cache=TRUE, echo=FALSE, include=FALSE}
