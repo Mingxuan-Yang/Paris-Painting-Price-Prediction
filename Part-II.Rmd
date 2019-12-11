@@ -224,20 +224,9 @@ PI <- cbind(CI[,1]-rmse.train, CI[,2] + rmse.train)
 ```
 
 
-
-
-
-
-
-
-
-
-
-
-
 ```{r predict-model-final, echo=FALSE, include=FALSE}
 # change model1 or update as needed
-fit = exp(apply(boot.boost, MARGIN = 1, FUN = mean))
+fit = exp(predict(model, newdata = paintings_test_new[,-ind], n.trees = 5000))
 lwr = exp(PI[,1])
 upr = exp(PI[,2])
 
