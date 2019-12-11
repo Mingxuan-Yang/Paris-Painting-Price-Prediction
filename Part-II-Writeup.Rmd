@@ -78,6 +78,7 @@ paintings_train_new$winningbiddertype <- case_when(
       paintings_train_new$winningbiddertype == "n/a" ~ "n/a"
     )
 paintings_train_new$winningbiddertype <- as.factor(paintings_train_new$winningbiddertype)
+paintings_train_new$logprice <- floor(paintings_train_new$logprice)
 ```
 
 ```{r fig.cap = "Variable Importance Measures in Random Forests"}
@@ -166,17 +167,17 @@ paintings_test_new$winningbiddertype <- as.factor(paintings_test_new$winningbidd
 ```
 
 ```{r warning=FALSE}
-MPM <- predict(bma2, estimator = "MPM")
-variable.names(MPM)
+BPM <- predict(bma2, estimator = "BPM")
+variable.names(BPM)
 ```
 
 ```{r}
-lm.MPM <- lm(logprice ~ dealer + year + origin_author + endbuyer + log_Surface + finished
-             + lrgfont + type_intermed + year:endbuyer, data = paintings_train_new)
+lm.BPM <- lm(logprice ~ dealer + year + origin_author + endbuyer + log_Surface + finished
+             + lrgfont + type_intermed + year:endbuyer + year:lrgfont + year:finished, data = paintings_train_new)
 ```
 
 ```{r}
-predictions <- as.data.frame(exp(predict(lm.MPM, paintings_test_new,
+predictions <- as.data.frame(exp(predict(lm.BPM, paintings_test_new,
                                          interval = "pred")))
 save(predictions, file="predict-test.Rdata")
 ```
@@ -184,7 +185,10 @@ save(predictions, file="predict-test.Rdata")
 
 ```{r predict-model-final, cache=TRUE, echo=FALSE, include=FALSE}
 # change model1 or update as needed
-predictions <- predict(bma, newdata = paintings_test_new, se.fit = TRUE)
+bma3 <- bas.lm(formula(lm.BPM), paintings_train_new,
+               prior = "JZS", modelprior = uniform(),
+               method = "MCMC", MCMC.iterations = 100000)
+predictions <- predict(bma3, newdata = paintings_test_new, se.fit = TRUE)
 ```
 
 ```{r output-test, echo=FALSE, include=FALSE}
