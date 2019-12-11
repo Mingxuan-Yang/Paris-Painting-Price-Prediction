@@ -78,7 +78,7 @@ paintings_train_new$winningbiddertype <- case_when(
       paintings_train_new$winningbiddertype == "n/a" ~ "n/a"
     )
 paintings_train_new$winningbiddertype <- as.factor(paintings_train_new$winningbiddertype)
-paintings_train_new$logprice <- floor(paintings_train_new$logprice)
+paintings_train_new$logprice <- round(paintings_train_new$logprice)
 ```
 
 ```{r fig.cap = "Variable Importance Measures in Random Forests"}
@@ -173,7 +173,7 @@ variable.names(BPM)
 
 ```{r}
 lm.BPM <- lm(logprice ~ dealer + year + origin_author + endbuyer + log_Surface + finished
-             + lrgfont + type_intermed + year:endbuyer + year:lrgfont + year:finished, data = paintings_train_new)
+             + lrgfont + type_intermed + year:endbuyer, data = paintings_train_new)
 ```
 
 ```{r}
