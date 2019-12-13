@@ -183,8 +183,13 @@ save(predictions, file="predict-test.Rdata")
 ```
 
 ```{r}
-lm2 <- lm(logprice ~ (year + dealer)^2, data = paintings_train_new)
-predictions <- as.data.frame(exp(predict(lm2, paintings_test_new,
+lm2 <- lm(logprice ~ (year + dealer + log_Surface + finished + lrgfont)^2, data = paintings_train_new)
+bic <- step(lm2, step = log(nobs(lm2)), trace = F)
+summary(bic)
+lm.bic5 <- lm(logprice ~ year + dealer + log_Surface + finished + lrgfont
+              + year:dealer + year:log_Surface + log_Surface:finished 
+              + log_Surface:lrgfont, data = paintings_train_new)
+predictions <- as.data.frame(exp(predict(lm.bic5, paintings_test_new,
                                          interval = "pred")))
 save(predictions, file="predict-test.Rdata")
 ```
