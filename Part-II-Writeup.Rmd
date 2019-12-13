@@ -182,6 +182,12 @@ predictions <- as.data.frame(exp(predict(lm.BPM, paintings_test_new,
 save(predictions, file="predict-test.Rdata")
 ```
 
+```{r}
+lm2 <- lm(logprice ~ (year + dealer)^2, data = paintings_train_new)
+predictions <- as.data.frame(exp(predict(lm2, paintings_test_new,
+                                         interval = "pred")))
+save(predictions, file="predict-test.Rdata")
+```
 
 ```{r predict-model-final, cache=TRUE, echo=FALSE, include=FALSE}
 # change model1 or update as needed
