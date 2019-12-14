@@ -257,8 +257,8 @@ rmse_data(model_rf)
 
 ```{r}
 fit <- exp(predict(model_rf, newdata = paintings_test_new))
-lwr <- exp(predict(model_rf, newdata = paintings_test_new) - 1)
-upr <- exp(predict(model_rf, newdata = paintings_test_new) + 1)
+lwr <- exp(predict(model_rf, newdata = paintings_test_new) - rexp(5))
+upr <- exp(predict(model_rf, newdata = paintings_test_new) + rexp(5))
 predictions <- data.frame(fit, lwr, upr)
 saveRDS(predictions, "predict-test.Rdata")
 ```
