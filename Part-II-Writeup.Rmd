@@ -257,7 +257,9 @@ rmse_data <- function(model){
 
 ```{r}
 # model
-model_rf <- randomForest(logprice ~ year + log_Surface + dealer + lrgfont + endbuyer + position + origin_author + finished + type_intermed, data = paintings_train_new, mtry = 4, importance = TRUE)
+model_rf <- randomForest(logprice~year+log_Surface+dealer+lrgfont+endbuyer+origin_author+
+                      winningbiddertype+finished+type_intermed+diff_origin+
+                      prevcoll, data = paintings_train_new, mtry = 11, importance = TRUE)
 rmse_data(model_rf)
 ```
 
