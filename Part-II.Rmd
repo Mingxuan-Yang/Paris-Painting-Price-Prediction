@@ -202,6 +202,52 @@ boot.boost <- bootstrap(train = paintings_train_new,
 
 ```
 
+```{r}
+CI <- t(apply(boot.boost, MARGIN = 1, quantile, c(0.025, 0.975)))
+ind <- which(colnames(paintings_train_new)=='logprice')
+yhat.train <- predict(model, newdata = paintings_train_new[,-ind], n.trees = 5000)
+rmse.train <- mean((paintings_train_new[,ind] - yhat.train)^2)
+PI <- cbind(CI[,1]-rmse.train, CI[,2] + rmse.train)
+```
+
+
+```{r}
+as.data.frame(rf$importance) %>% arrange(IncNodePurity)
+```
+
+
+
+```{r}
+rf <- randomForest(logprice~., data = paintings_train_new,
+            importance = TRUE)
+
+
+bootstrap = function(train, fitfunct, test, iter){
+  inds = replicate(iter, sample.int(nrow(train), replace = T), simplify = F) 
+  resamp = lapply(inds, function(ind){train[ind,]})
+  out = base::sapply(resamp, fitfunct, test) 
+  return(out)
+}
+
+
+fit.rf <- function(tr, te) {
+  model <- randomForest(logprice~., data = tr, importance = TRUE)
+  out <- predict(model, te)
+}
+
+
+boot.boost <- bootstrap(train = paintings_train_new, 
+                         fitfunct = fit.rf, 
+                         test = paintings_test_new, 
+                         iter = 20)
+
+```
+
+
+
+
+
+
 
 ```{r}
 CI <- t(apply(boot.boost, MARGIN = 1, quantile, c(0.025, 0.975)))

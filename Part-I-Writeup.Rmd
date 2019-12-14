@@ -388,6 +388,9 @@ paintings_val_new$winningbiddertype <- case_when(
 paintings_val_new$winningbiddertype <- as.factor(paintings_val_new$winningbiddertype)
 ```
 
+
+
+
 ```{r predict-model-validation, echo=FALSE, include=FALSE}
 # change model1 or update as needed
 predictions <- as.data.frame(
