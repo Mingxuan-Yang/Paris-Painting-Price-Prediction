@@ -256,18 +256,23 @@ rmse_data(model_rf)
 ```
 
 ```{r}
+forest=randomForest(logprice ~ year + log_Surface + dealer + lrgfont + endbuyer + position + origin_author + finished + type_intermed, data=paintings_train_new,mtry=9,importance=TRUE)
+yhat2=predict(forest,paintings_train_new)
+rmse2=sqrt(mean((yhat2-paintings_train_new$logprice)^2))
+
 mean=matrix(NA,nrow=30,ncol=750)
 for(i in 1:30){
   bootstrap=sample_n(paintings_train_new,1300,replace = TRUE)
-  bootstrap_tree=randomForest(logprice ~ year + log_Surface + dealer + lrgfont + endbuyer + position + origin_author + finished + type_intermed, data=bootstrap, mtry=7, importance=TRUE)
+  bootstrap_tree=randomForest(logprice ~ year + log_Surface + dealer + lrgfont + endbuyer + position + origin_author + finished + type_intermed, data=bootstrap, mtry=9, importance=TRUE)
   yhat=predict(bootstrap_tree,paintings_test_new)
   mean[i,]=yhat
 }
-means=apply(mean, 2, median)
-interval=c(quantile(means,0.025)-1.96*rmse2,quantile(means,0.975)+1.96*rmse2)
-fit=exp(means)
-lwr=exp(interval[1])
-upr=exp(interval[2])
+interval=cbind(
+  apply(mean, 2, quantile, probs = 0.025)-1.96*rmse2,
+  apply(mean, 2, quantile, probs = 0.975)+1.96*rmse2)
+fit=exp(predict(forest, paintings_test_new))
+lwr=exp(interval[,1])
+upr=exp(interval[,2])
 predictions=data.frame(fit,lwr,upr)
 save(predictions,file="predict-test.Rdata")
 ```
