@@ -258,30 +258,18 @@ rmse_data <- function(model){
 }
 ```
 
-
-```{r}
-# model
-model_rf <- randomForest(logprice~year+log_Surface+dealer+lrgfont+endbuyer+origin_author+
-                      winningbiddertype+finished+type_intermed+diff_origin+
-                      prevcoll, data = paintings_train_new, mtry = 11, importance = TRUE)
-rmse_data(model_rf)
-```
-
 ```{r}
 set.seed(3)
 forest=randomForest(logprice~year+log_Surface+dealer+lrgfont+endbuyer+origin_author+
                       finished+type_intermed+diff_origin+
-                      prevcoll, data=paintings_train_new,mtry=10,importance=TRUE)
+                      prevcoll+winningbiddertype+school_pntg, data=paintings_train_new,mtry=12,importance=TRUE)
 yhat2=predict(forest,paintings_train_new)
 rmse2=sqrt(mean((yhat2-paintings_train_new$logprice)^2))
 
 mean=matrix(NA,nrow=30,ncol=750)
 for(i in 1:30){
   bootstrap=sample_n(paintings_train_new,1300,replace = TRUE)
-  bootstrap_tree=randomForest(logprice~year+log_Surface+dealer+lrgfont+endbuyer+
-                                origin_author+finished+type_intermed+
-                                diff_origin+prevcoll,
-                              data=bootstrap, mtry=10, importance=TRUE)
+  bootstrap_tree=randomForest(formula(forest), data=bootstrap, mtry=12, importance=TRUE)
   yhat=predict(bootstrap_tree,paintings_test_new)
   mean[i,]=yhat
   print(i)
@@ -294,6 +282,7 @@ lwr=exp(interval[,1])
 upr=exp(interval[,2])
 predictions=data.frame(fit,lwr,upr)
 save(predictions,file="predict-test.Rdata")
+rmse_data(forest)
 ```
 
 ```{r}
