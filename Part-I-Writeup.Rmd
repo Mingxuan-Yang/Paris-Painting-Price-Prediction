@@ -104,6 +104,7 @@ paintings_train_new <- paintings_train_new[-which(paintings_train_new$position >
 # clean Shape
 paintings_train_new[which(paintings_train_new$Shape == "ronde"), 28] <- "round"
 paintings_train_new[which(paintings_train_new$Shape == "ovale"), 28] <- "oval"
+paintings_train_new$Shape=droplevels(paintings_train_new$Shape)
 
 # choose variables
 paintings_train_new <- paintings_train_new %>% 
@@ -272,16 +273,20 @@ paintings_test_new[, c(4, 6:9, 12:22, 25, 27:28, 30:32, 34:59)] <- as.data.frame
          function(x) ifelse(paste(x) == "" | paste(x) == "-",
                             "n/a", paste(x))))
 
-# clean position
-paintings_test_new[which(paintings_test_new$position > 1), 3] <-
-  paintings_test_new[which(paintings_test_new$position > 1), 3]/100
-
 # clean Shape
-paintings_test_new[which(paintings_test_new$Shape == "ronde"), 28] <-
+paintings_test_new[which(paintings_test_new$Shape == "ronde"), 'Shape'] <-
   "round"
-paintings_test_new[which(paintings_test_new$Shape == "ovale"), 28] <-
+paintings_test_new[which(paintings_test_new$Shape == "ovale"), 'Shape'] <-
   "oval"
-
+paintings_test_new[which(paintings_test_new$Shape == "octogon"), 'Shape'] <-
+  "octagon"
+paintings_test_new$Shape <- droplevels(paintings_test_new$Shape)
+# clean authorstyle
+paintings_test_new[which(paintings_test_new$authorstyle == "copy by"), 'authorstyle'] <-
+  "copy after"
+paintings_test_new[which(paintings_test_new$authorstyle == "study of"), 'authorstyle'] <-
+  'school of'
+paintings_test_new$authorstyle <- droplevels(paintings_test_new$authorstyle)
 # choose variables
 paintings_test_new <- paintings_test_new %>% 
   select(-winningbidder, -authorstandard, -sale, -lot, -price, -count,
@@ -349,6 +354,12 @@ paintings_val_new[which(paintings_val_new$Shape == "ronde"), 28] <-
 paintings_val_new[which(paintings_val_new$Shape == "ovale"), 28] <-
   "oval"
 
+paintings_test_new[which(paintings_test_new$authorstyle == "copy by"), 'authorstyle'] <-
+  "copy after"
+paintings_test_new[which(paintings_test_new$authorstyle == "study of"), 'authorstyle'] <-
+  'school of'
+paintings_test_new$authorstyle <- droplevels(paintings_test_new$authorstyle)
+
 # choose variables
 paintings_val_new <- paintings_val_new %>% 
   select(-winningbidder, -authorstandard, -sale, -lot, -price, -count,
@@ -386,6 +397,9 @@ paintings_val_new$winningbiddertype <- case_when(
       paintings_val_new$winningbiddertype == "n/a" ~ "n/a"
     )
 paintings_val_new$winningbiddertype <- as.factor(paintings_val_new$winningbiddertype)
+paintings_test_new$logprice <- as.double(paintings_test_new$logprice)
+paintings_test_new <- rbind(paintings_train_new[1, ] , paintings_test_new)
+paintings_test_new <- paintings_test_new[-1,]
 ```
 
 ```{r predict-model-validation, echo=FALSE, include=FALSE}
