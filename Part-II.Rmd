@@ -203,18 +203,6 @@ boot.boost <- bootstrap(train = paintings_train_new,
 ```
 
 
-
-```{r}
-fit <- function(tr, te) {
-  model <- randomForest(medv~., data = Boston, subset = train,
-                           mtry = 13, importance = TRUE)
-  out <- predict(model, te, n.trees=5000)
-}
-```
-
-
-
-
 ```{r}
 CI <- t(apply(boot.boost, MARGIN = 1, quantile, c(0.025, 0.975)))
 ind <- which(colnames(paintings_train_new)=='logprice')
@@ -226,7 +214,7 @@ PI <- cbind(CI[,1]-rmse.train, CI[,2] + rmse.train)
 
 ```{r predict-model-final, echo=FALSE, include=FALSE}
 # change model1 or update as needed
-fit = exp(predict(model, newdata = paintings_test_new[,-ind], n.trees = 5000))
+fit = exp(apply(boot.boost, MARGIN = 1, FUN = mean))
 lwr = exp(PI[,1])
 upr = exp(PI[,2])
 
