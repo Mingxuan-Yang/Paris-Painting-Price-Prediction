@@ -81,7 +81,7 @@ save(predictions,file="predict-test.Rdata")
 
 random forest
 ```{r}
-set.seed(3)
+set.seed(10)
 forest=randomForest(logprice~.,data=paintings_train_new,mtry=7,importance=TRUE)
 yhat2=predict(forest,paintings_train_new)
 rmse2=sqrt(mean((yhat2-paintings_train_new$logprice)^2))
