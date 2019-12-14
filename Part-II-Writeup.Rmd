@@ -96,9 +96,9 @@ for(i in 1:30){
 }
 means=colMeans(mean)
 interval=c(quantile(means,0.025)-1.96*rmse2,quantile(means,0.975)+1.96*rmse2)
-fit=means
-lwr=interval[1]
-upr=interval[2]
+fit=exp(means)
+lwr=exp(interval[1])
+upr=exp(interval[2])
 predictions=data.frame(fit,lwr,upr)
 save(predictions,file="predict-test.Rdata")
 ```
