@@ -1,0 +1,677 @@
+---
+title: "Part-II-Writeup"
+author: "Team-FP03"
+date: "2019/12/15"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+header-includes: 
+  \usepackage{float} 
+  \floatplacement{figure}{H}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r packages}
+suppressMessages(library(knitr))
+suppressMessages(library(GGally))
+suppressMessages(library(plyr))
+suppressMessages(library(tidyverse))
+suppressMessages(library(mice))
+suppressMessages(library(tree))
+suppressMessages(library(gbm))
+suppressMessages(library(randomForest))
+```
+
+```{r read-data}
+load("paintings_train.Rdata")
+load("paintings_test.Rdata")
+load("paintings_validation.RData")
+```
+
+# Introduction
+
+In this project, we are going to explore what factors drove the price of paintings in 18th century Paris, and thus to identify possible overvalued and undervalued paintings.  
+
+The dataset we are going to analyze is a series of auction transactions of paintings in Paris, ranging from 1764 to 1780. This dataset mainly contains the following information:  
+
+1. Sale data, this include basic information about dealers, end buyers, transaction dates and prices;  
+2. Characteristics of paintings, such as their painters, sizes, materials, number of figures and themes.  
+
+To address our problem, we divide this project into three parts:  
+
+1. In the first part, we carried out an exploratory data analysis. The target of this section is to understand the composition of our dataset and identify potential important variables.  
+2. In the second part, a simple linear regression model was fit to the data, aiming to confirm important variables and interactions from the model selection process and to prepare for fitting a more complex model.  
+3. In the last part, we attempt a range of different models on the dataset, challenging ourselves to achieve a better prediction model. At last, we decide to use a random forest model as our final choice mainly due to its satisfactory accuracy.  
+
+# Exploratory Data Analysis  
+
+In this section, we are going to explore our dataset in the following way: we first investigate the variables in the dataset to find their characteristics and possible relationships among each other; then we check the scatter plots between the response and each variable to identify potential important predictors.  
+
+## Variable investigation
+
+The dataset has 1500 observations and 59 variables in total, among which 19 are of type character and 40 are recognized as type numeric by R. However, with the following analysis, it's easy to find that a considerable amount of them should be considered as categorical varialbes, which is also mentioned in the provided codebook.
+
+### Variables to drop  
+
+First of all, we can remove a few variables from the list of potential predictors simply based on their definitions:
+
+Variable `price` is just the exponetial form of our target response `logprice`, and thus needs removing;  
+Variable `count` is the same for all observations, therefore there's no point to use it in the model fitting.  
+
+Besides these two, there exist quite a number of variables of interest:  
+
+Variables `subject`, `lot`, and `material` have way too many distinct values. Also, the possible values for these variables are too complicated and we decide not to use them in the model.  
+
+Then, in the dataset there exist strong correlations among some pairs of variables. For example, there is correlation between `Interm` & `type_intermed`, and `mat` & `materialCat`. In **Table 1**, we display the contingency table for `Interm` vs. `type_intermed`, and as we can see, when `Interm` takes $0$ `type_intermed` always takes `n/a`; when `Interm` takes $1$, `type_intermed` takes other values. Thus, we decide to remove `Interm`, since `type_intermed` hopefully contains a bit more information. This is similar for the relationship between `materialCat` and `mat`, and thus we remove `materialCat`.  
+
+```{r echo=FALSE}
+# correlation
+paintings_train_new <- paintings_train
+kable(table(paintings_train_new$Interm, paintings_train_new$type_intermed), caption = "Interm vs type_intermed")
+```
+  
+In a similar manner, `Surface` should be known if `Diam_in`, or `Height_in` and `Width_in` are known at the same time. Also, note that `Surface` is the combination of `Surface_Rnd` and `Surface_Rect`. Thus, among all these variables mentioned, we just keep `Surface` in the model fitting process.
+
+Addtionally, if variables `origin_author` and `origin_cat` are known, the value of `diff_origin` is also $100\%$ certain. Besides, `type_intermed` incorporates all information of `Interm`, and `sale` is just the combination of `dealer` and `year`, but has way more distinct values which is not easy to handle. Thus, we decide to drop `diff_origin`, `Interm` and `sale`.
+
+
+### Variables to impute
+
+We've found that NA's exist in a lot of variables, and these NA's do not always indicate values missing completely at random. For example, from the R output below, we can see that `Surface` is not missing at random, since the coefficient for the categorical variable `is.na(Surface)` is judged to be sigificant with a p-value close to 0.
+
+Thus, for these numeric variables, instead of simply discarding observations containing NA's, we choose to impute the missing values with the observed ones.
+
+For categorical variables with a lot of blank or meaningless values, such as `endbuyer`, `type_intermed`, `material` and `mat`, we impute `n/a` into them to create a new category.  
+
+```{r, echo = FALSE}
+missing_Surface <- lm(paintings_train$logprice ~ is.na(paintings_train$Surface))
+summary(missing_Surface)
+```
+
+```{r}
+# replace blank space and NA of categorical variables with n/a
+
+ca_var <- c("dealer","origin_author","origin_cat","school_pntg","diff_origin","count","subject","authorstandard","artistliving","authorstyle","author","winningbidder","winningbiddertype","endbuyer","Interm","type_intermed","Surface_Rect","Surface_Rnd","Shape","material","mat","materialCat","engraved","original","prevcoll","othartist","paired","figures","finished","lrgfont","relig","landsALL","lands_sc","lands_elem","lands_figs","lands_ment","arch","mytho","peasant","othgenre","singlefig","portrait","still_life","discauth","history","allegory","pastorale","other")
+
+paintings_train_new[, ca_var] <- as.data.frame(sapply(paintings_train_new[,ca_var], function(x) ifelse(x == "" | x == "-", "n/a", x)))
+```
+
+### Variables to manipulate
+
+Variable `position` indicates the position of lot in the catalogue and is expressed as percentages. However, the maximum value of it in the dataset can be as large as `r round(max(paintings_train$position), 2)`, which are obviously typos. Similarly, there are observations with variables such as `Surface` equal to $0$. As a result, observations with impossible `position` and `Surface` values are dropped.
+
+Besides, `Shape` variable has some weird values, such as `oval` vs. `ovale`, and `ronde` vs. `round`, which are also typos and thus need fixing. Similarly, for variable `authorstyle` there are values like `in the taste`, `taste of` and `in the taste of` which essentially mean the same thing. For variables like this, we incorporate these redundant levels. 
+
+Variables `authorstandard` and `author` seem to have prohibitively many distinct values. However, it is almost commmon sense that the value of a painting should be correlated with its author, especially with famous authors. Thus, we managed to create a new variable `Fame`, which indicates whether the author for a specific painting has created a masterpiece that ranked high in terms of logarithmic sale price. 
+
+In order to determine the range of famous painters, we take reference to the following plot **Figure 1**, which displays the trend of `logprice` across the dataset. It seems that there's a very sharp decrease of `logprice` for expensice paintings at the beginning of the plot, which is very likely to be caused by 'celebrity effect'. Thus, we decide to choose the authors of top 120 paintings to be famous, since after roughly 120 the decrease becomes much smoother.
+
+```{r, fig.height = 4, fig.width = 5, fig.align = "center", fig.cap = "Plot of logprice", echo = FALSE}
+plotdf <- paintings_train %>% arrange(desc(logprice))
+ggplot(data = plotdf, aes(x = 1:nrow(plotdf), y = logprice)) + 
+  geom_point(color = 'deepskyblue', alpha = 0.2) +
+  geom_smooth(method = 'lm', fullrange = TRUE, linetype = 'dashed', color = 'red') +
+  labs(x = 'Painting Index', y = 'log Price') +
+  theme_bw()
+
+```
+
+At last, notice that `winningbiddertype` has too many levels, which may result in difficulties both in model fitting and in interpretation. Thus, we decide to apply the following transformation on `winningbiddertype`:
+
+Observations with levels `B,BB,BC` are combined to have level `B`;  
+Observations with levels `C` remains untouched;  
+Observations with levels `D,DB,DC,DD` are combined to have level `D`;  
+Observations with levels `E,EB,EBC,EC,ED` are combined to have level `E`;  
+Blank space and unknown observations are combined to have level `n/a`.
+
+The rationale for the above transformation is that, the bidder who actually attended the auction had the most influence on the sale price.
+
+## Important predictor identification
+
+In this section we are going to evaluate scatter plots between our response `logprice` and each varaible after the manipulations from the previous part.  
+
+```{r, include = FALSE}
+# add a variable representing the top 120
+fame <- paintings_train_new %>% 
+  select(authorstandard, logprice) %>% 
+  arrange(desc(logprice)) %>% 
+  slice(1:120) %>% 
+  select(authorstandard) %>% 
+  unique() %>% unlist() %>% as.character()
+paintings_train_new <- paintings_train_new %>% 
+  mutate(Fame = authorstandard %in% fame)
+
+# clean position
+paintings_train_new <- paintings_train_new[-which(paintings_train_new$position > 1),]
+
+# clean Shape
+paintings_train_new[which(paintings_train_new$Shape == "ronde"), 'Shape'] <- "round"
+paintings_train_new[which(paintings_train_new$Shape == "ovale"), 'Shape'] <- "oval"
+paintings_train_new$Shape <- droplevels(paintings_train_new$Shape)
+
+# clean authorstyle
+paintings_train_new[which(paintings_train_new$authorstyle == "in the taste"|paintings_train_new$authorstyle == "taste of"), 'authorstyle'] <-
+  "in the taste of"
+paintings_train_new$authorstyle <- droplevels(paintings_train_new$authorstyle)
+
+# choose variables
+paintings_train_new <- paintings_train_new %>%
+  dplyr::select(-winningbidder, -authorstandard, -sale, -lot, -price, -count, -subject, -author, -Interm, -Surface_Rect, -Surface_Rnd, -material, -materialCat, -Height_in, -Width_in, -Diam_in)
+
+
+# delete repeating data
+paintings_train_new <- unique(paintings_train_new)
+
+
+# imputate missing
+set.seed(103)
+imputed <- mice(paintings_train_new, m = 5)
+paintings_train_new <- mice::complete(imputed)
+
+# clean Surface
+paintings_train_new <- paintings_train_new[-which(paintings_train_new$Surface == 0),]
+
+# clean winningbiddertype
+paintings_train_new$winningbiddertype <- case_when(
+  paintings_train_new$winningbiddertype == "B" ~ "B",
+  paintings_train_new$winningbiddertype == "BB" ~ "B",
+  paintings_train_new$winningbiddertype == "BC" ~ "B",
+  paintings_train_new$winningbiddertype == "C" ~ "C",
+  paintings_train_new$winningbiddertype == "D" ~ "D",
+  paintings_train_new$winningbiddertype == "DB" ~ "D",
+  paintings_train_new$winningbiddertype == "DC" ~ "D",
+  paintings_train_new$winningbiddertype == "DD" ~ "D",
+  paintings_train_new$winningbiddertype == "E" ~ "E",
+  paintings_train_new$winningbiddertype == "EB" ~ "E",
+  paintings_train_new$winningbiddertype == "EBC" ~ "E",
+  paintings_train_new$winningbiddertype == "EC" ~ "E",
+  paintings_train_new$winningbiddertype == "ED" ~ "E",
+  paintings_train_new$winningbiddertype == "U" ~ "n/a",
+  paintings_train_new$winningbiddertype == "n/a" ~ "n/a"
+)
+paintings_train_new$winningbiddertype <- as.factor(paintings_train_new$winningbiddertype)
+
+```
+
+```{r, fig.height = 24, fig.width = 16, fig.align = "center", fig.cap = "Plots of predictors versus logprice (1 to 23)", echo = FALSE}
+# scatterplot
+par(mfrow = c(6, 4))
+for(i in c(1:2,4:7, 9:24)){
+  plot(paintings_train_new[, i], paintings_train_new[, 8], xlab = colnames(paintings_train_new)[i], ylab = "logprice", cex.axis = 2, cex.lab = 2)
+}
+plot(as.factor(paintings_train_new[, 3]),paintings_train_new[, 8], 
+     xlab = 'Year', ylab = 'logprice', cex.axis = 2, cex.lab = 2)
+```
+
+**Figure 2** above displays the scatter plots between `logprice` and the first $23$ variables in the dataset. Our target is to identify variables that show a strong relationship with the response. Bearing this in mind, it is easy to notice that variables `dealer`, `origin_author`, `winningbiddertype`, `endbuyer`, `type_intermed`, `prevcoll`, `finished` and `year`appear to have the strongest relationship with `logprice`. In addition, variables such as `Surface` are clustered near the beginning of x axis, and thus we decide to apply log transformations on them and have a closer look afterwards.
+
+```{r, fig.height = 20, fig.width = 16, fig.align = "center", fig.cap = "Plots of predictors versus logprice (24 to 42)", echo = FALSE}
+# scatterplot
+par(mfrow = c(5, 4))
+for(i in 25:43){
+  plot(paintings_train_new[, i], paintings_train_new[, 8], xlab = colnames(paintings_train_new)[i], ylab = "logprice", cex.axis = 2, cex.lab = 2)
+}
+plot(as.factor(paintings_train_new[, 44]),paintings_train_new[, 8], 
+     xlab = 'Fame', ylab = 'logprice', cex.axis = 2, cex.lab = 2)
+```
+
+$~$
+
+**Figure 3** above display the scatter plots between `logprice` and the rest of the variables in the dataset. As we can see, most of the binary categorical variables fail to present a strong relationship with the response. The only exceptions are `lrgfont` and the created variable `Fame`, which correspond to quite different response values at the two different levels.  
+
+For `Surface`, we can do log transformation to the corresponding predictors to see their relationship with `logprice` at a greater detail in **Figure 4**.  
+
+```{r, fig.height = 4, fig.width = 4, fig.align = "center", fig.cap = "Plots of log Surface versus logprice"}
+plot(log(paintings_train_new[, 15]), paintings_train_new[, 8], xlab = paste("log(", colnames(paintings_train_new)[15], ")", sep = ""), ylab = "logprice")
+```
+
+As we can see from **Figure 4**, there seem to be a weak relationship between `logprice` and log-transformed `Surface`. Intuitively, the surface of paintings should indeed be correlated to their prices.  
+
+```{r}
+# log transformation to Surface
+paintings_train_new$Surface <- log(paintings_train_new$Surface)
+colnames(paintings_train_new)[which(colnames(paintings_train_new) == 'Surface')] <- "log_Surface"
+```
+
+
+
+In conclusion, after our manipulation of the dataset and inspection of the relationships between response and each variable, we reckon that variables `dealer`, `year`, `origin_author`, `winningbiddertype`, `endbuyer`, `type_intermed`, `finished`, `lrgfont`, `Fame` and the log transformation of `Surface` are the most important variables in terms of scatter plots and their definitions. To be specific, these variables represent the following meaning:  
+
+1. `dealer` indicates dealer initials;  
+2. `year` means the year of sale;  
+3. `origin_author` indicates the origin of painting based on nationality of artist;  
+4. `winningbiddertype` is the type of winning bidder, such as buyer on behalf of collector or expert;  
+5. `endbuyer` is the type of end buyer;  
+6. `type_intermed` means the type of intermediary;  
+7. `finished` indicates whether the painting is noted for its highly polished finishing;  
+8. `lrgfont` indicates whether the dealer devotes an additional paragraph (always written in a larger font size);  
+9. `Surface` is the surface of painting in squared inches, and is transformed on log scale;  
+10. `Fame`, which is a created variable, indicates whether a painter has created one of the top 120 expensive paintings in the dataset.  
+
+In addition, variables like `prevcoll` and `school_pntg` also seem important, and may be of use as well. However, we need formal model fitting and selection process to decide the variables and interactions to use.  
+
+# Preliminary Model Discussion
+
+In this section, we are going to discuss the performance of our preliminary model fitted in part I.
+
+### Discussion of preliminary model
+
+The results of our linear regression model on the leaderboard based on the original test data are shown in the table below.
+
+As we can see, our `Bias` result is relatively high, while `Coverage` and `RMSE` results are relatively low. This is not a very satisfactory model. Moreover, owing to the property of linear regression, our potential to improve the performance is very limited. Despite the fact that `Bias` is likely to decrease if more predictors are added to the model, `Coverage` and `RMSE` are most likely to increase in the meantime, leading to no significant improvement of our model. This relationship is also known as the `Bias-Variance` tradeoff. As a result, we can hardly improve our result under linear regression model. Therefore, it is necessary to introduce some non-linear regression models, such as Random Forest.
+
+```{r}
+kable(data.frame(Type="linear",
+                 Bias=206,
+                 Coverage=0.95,
+                 MaxDeviation=13558,
+                 MeanAbsDeviation=541,
+                 RMSE=1487), digits = 3, align = 'c', caption = 'Preliminary Model Performance' )
+```
+
+
+
+```{r cache = TRUE}
+# full model
+model_test <- lm(logprice ~ (dealer + year + origin_author + endbuyer + log_Surface + finished + lrgfont + position + winningbiddertype + type_intermed)^2, data = paintings_train_new)
+
+# BIC
+model1 <- step(model_test, k = log(nobs(model_test)), direction = "both", trace = F)
+```
+
+```{r include=F}
+summary(model1)
+anova(model1)
+```
+
+```{r echo = FALSE, warning = FALSE, include = FALSE}
+# test data
+paintings_test_new <- paintings_test
+# replace blank space and NA of categorical variables with n/a
+paintings_test_new[, ca_var] <- as.data.frame(
+  sapply(paintings_test_new[, ca_var],
+         function(x) ifelse(paste(x) == "" | paste(x) == "-",
+                            "n/a", paste(x))))
+# clean position
+paintings_test_new[which(paintings_test_new$position > 1), 'position'] <-
+  paintings_test_new[which(paintings_test_new$position > 1), 'position']/100
+
+# add fame
+paintings_test_new <- paintings_test_new %>% 
+  mutate(Fame = authorstandard %in% fame)
+
+# clean Shape
+paintings_test_new[which(paintings_test_new$Shape == "ronde"), 'Shape'] <-
+  "round"
+paintings_test_new[which(paintings_test_new$Shape == "ovale"), 'Shape'] <-
+  "oval"
+paintings_test_new[which(paintings_test_new$Shape == "octogon"), 'Shape'] <-
+  "octagon"
+paintings_test_new$Shape <- droplevels(paintings_test_new$Shape)
+
+# clean authorstyle
+paintings_test_new[which(paintings_test_new$authorstyle == "copy by"), 'authorstyle'] <-
+  "copy after"
+paintings_test_new[which(paintings_test_new$authorstyle == "study of"), 'authorstyle'] <-
+  'school of'
+paintings_test_new$authorstyle <- droplevels(paintings_test_new$authorstyle)
+
+# choose variables
+paintings_test_new <- paintings_test_new %>%
+  select(-winningbidder, -authorstandard, -sale, -lot, -price, -count,
+         -subject, -author, -Interm, -Height_in, -Width_in, -Diam_in,
+         -Surface_Rect, -Surface_Rnd, -material, -materialCat)
+
+# clean Surface
+paintings_test_new[which(paintings_test_new$Surface == 0), 'Surface'] <- NA
+
+# imputate missing
+set.seed(103)
+imputed_test <- mice(paintings_test_new, m = 5)
+paintings_test_new <- mice::complete(imputed_test)
+
+# log transformation to Surface
+paintings_test_new$Surface <- log(paintings_test_new$Surface)
+colnames(paintings_test_new)[which(colnames(paintings_test_new) == 'Surface')] <- "log_Surface"
+
+# clean winningbiddertype
+paintings_test_new$winningbiddertype <- case_when(
+  paintings_test_new$winningbiddertype == "B" ~ "B",
+  paintings_test_new$winningbiddertype == "BB" ~ "B",
+  paintings_test_new$winningbiddertype == "BC" ~ "B",
+  paintings_test_new$winningbiddertype == "C" ~ "C",
+  paintings_test_new$winningbiddertype == "D" ~ "D",
+  paintings_test_new$winningbiddertype == "DB" ~ "D",
+  paintings_test_new$winningbiddertype == "DC" ~ "D",
+  paintings_test_new$winningbiddertype == "DD" ~ "D",
+  paintings_test_new$winningbiddertype == "E" ~ "E",
+  paintings_test_new$winningbiddertype == "EB" ~ "E",
+  paintings_test_new$winningbiddertype == "EBC" ~ "E",
+  paintings_test_new$winningbiddertype == "EC" ~ "E",
+  paintings_test_new$winningbiddertype == "ED" ~ "E",
+  paintings_test_new$winningbiddertype == "U" ~ "n/a",
+  paintings_test_new$winningbiddertype == "n/a" ~ "n/a"
+)
+paintings_test_new$winningbiddertype <- as.factor(paintings_test_new$winningbiddertype)
+
+# standardized variable type
+paintings_test_new <- rbind(paintings_train_new[1,],paintings_test_new)
+paintings_test_new <- paintings_test_new[-1,]
+
+```
+
+
+# Final Model fitting  
+
+In this section, we are going to present our final model, which is a random forest model built upon the experience from EDA and the preliminary model fitting process and after attempting a series of different models.  
+The remaining part of the section will proceed in the following way: we will first display the summary table for our final model, and then provide expalnations for the variables employed in the model. After these, we will explain in detail the model selection process, including what standards are used in variable selection and the rationales behind. Then a residual plot resulted from our final model will be displayed and appropriate descriptions will be offered. At last, we will provide a clear procedure explaining how the prediction interval was obtained, since there are no explicit methods for acquiring a prediction interval for random forest models.
+
+## Development of the final model
+
+
+```{r include=FALSE}
+set.seed(53)
+forest <- randomForest(logprice ~ year + log_Surface + dealer + lrgfont + endbuyer +    origin_author + winningbiddertype + finished + type_intermed + diff_origin + prevcoll + paired + mat + Fame, data = paintings_train_new, mtry = 13, importance = TRUE)
+forest
+```
+
+The summary table of our final model is displayed below:
+
+```{r}
+kable(data.frame(variable=c("year" , "log_Surface" , "dealer" , "lrgfont" , "endbuyer", "origin_author" , "winningbiddertype" , "finished" , "type_intermed" , "diff_origin" , "precvoll" , "paired" , "Fame" , "mat")), align = 'c', caption = 'Summary Table - Variables')
+```
+
+```{r}
+kable(data.frame('No. of trees' = 500,
+                 'mtry' = 13,
+                 'Variance Explained'=max(forest$rsq),
+                 'Mean of squared residuals' = min(forest$mse),check.names = F), 
+      align = 'c', digits = 3,
+      caption = 'Summary Table - Model')
+```
+
+As is seen from the summary table, we have used the following variables:  
+
+1. `year`: year of sale;  
+2. `log_surface`: the logarithmic transformation of surface of paintings in squared inches;  
+3. `dealer`: a categorical variable representing dealer initials with 4 unique dealers: J, L, P and R;  
+4. `lrgfont`: indicates whether the dealer devotes an additional paragraph (always written in a larger font size);  
+5. `endbuyer`: a categorical variable indicating the type of end buyer, with B = buyer, C = collector, D = dealer, E = expert organizing the sale, X = identity unknown and blank = no information;  
+6. `origin_author`:  origin of painting based on nationality of artist, with A = Austrian, D/FL = Dutch/Flemish, F = French, G = German, I = Italian, S = Spanish and X = Unknown;  
+7. `winningbiddertype`: indicating the type of winning bidder wih B = buyer, C = collector, D = dealer, E = experts organization and n/a = no information;  
+8. `finished`: indicating whether the painting is finished, with '1' indicating painting is finished;  
+9. `type_intermed`: a categorical variable representing the type of intermediary with B = buyer, D = dealer and E = expert;  
+10. `diff_origin`: indicating whether variable `origin_author` is different from `origin_cat`; in other words, it means whether the origin of the paintings based on nationality and dealer's classification are the same or not, with 1 representing the same;  
+11. `Fame`: indicating whether the author of the painting is famous, with '1' indicating that the author is famous;  
+12. `paired`: indicating whether the painting is sold or suggested as a pairing for another, with '1' indicating it's sold as a pairing for another;  
+13. `mat`: representing the category of material, with 'al' = alabaster, 'ar' = slate, 'b' = wood,  'br' = bronze frames, 'c' = copper, 'ca' = cardboard, 'co' = cloth, 'g' = grissaille technique, 'h' = oil technique, 'm' = marble, 'mi' = miniature technique, 'o' = other, 'p' = paper, 'pa' = pastel, 't' = canvas, 'ta' = canvas, 'v' = glass and n/a = NA;  
+14. `prevcoll`: indicating if the previous owner of the painting is mentioned, with '1' indicating yes.  
+
+
+```{r include=FALSE}
+test=randomForest(logprice~.,data=paintings_train_new,mtry = 7, importance = TRUE)
+importance(test)
+varImpPlot(test)
+```
+
+During the variable selection process, we selected variables based on the following three criteria.
+
+The first criterion is the linear model in **Preliminary Model Fitting** part. Our fitted linear model chose some of the important variables identified in EDA, and according to test data accuracy and coverage, it performed satisfactorily. Thus, we also consider some of the variables used in the previous part.   
+The second criterion is the **variable importance plot** resulted from our random Forest model, as displayed above. Besides those variables already selected from the first criterion, we also selected some of the important variables in the top of the importance plot.  
+The third criterion is the overall performance as indicated by the leadboard. We elaborated our model to achieve a higher performance from the leadboard, emphasizing on the test data root mean square error and model coverage.
+
+
+```{r fig.cap='Residual Plot'}
+ggplot() + 
+  geom_point(aes(
+    x=predict(forest,paintings_train_new),
+    y=predict(forest,paintings_train_new)-paintings_train_new$logprice)) + 
+  labs(x="log price",y="residual") + 
+  theme_bw()
+```
+
+
+As we can see from the figure above, the residuals behave better when `logprice` is either very small or very large than the ones when logprice is around 5. More specifically, the residuals have a larger spread (from -2 to 2) when logprice is roughly 5. On the other hand, residuals are relativly tightly centerd around 0 when `logprice` goes into extremes. Generally speaking, most of the residuals are smaller than 2 and are distributed in a reasonable way, which does not indicate any significant problem of our model.  
+
+Finally, we are going to explain the method of constructing the prediction interval out of our final random forest model. Since there are no direct funtions nor any explicit methods to calculate prediction intervals for random forest models, we choose to use bootstrap method to calculate the interval.  
+
+To build our interval, we first bootstrap our training data to obtain a series of 'new' datasets of the same size. Then, we fit our random forest model on each new dataset and calculate predictions based on test data. Putting all the calculated predictions, we can then acquire the confidence interval. At last, we subtract/add 1.96*rmse (rmse of the training data) to the confidence interval to calculate the prediction interval.  
+
+
+## Assessment of the final Model
+
+In this section, we are going to display the following topics: we would first discuss the evaluation of our random forest model based on both the training set and test set; then we are going to display our model result, which includes a selection and discussion of the top 10 valued paintings in the validation data.
+
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# validation data
+paintings_validation_new <- paintings_validation
+# replace blank space and NA of categorical variables with n/a
+paintings_validation_new[, ca_var] <- as.data.frame(
+  sapply(paintings_validation_new[, ca_var],
+         function(x) ifelse(paste(x) == "" | paste(x) == "-", "n/a", paste(x))))
+
+
+paintings_validation_new <- paintings_validation_new %>% 
+  mutate(Fame = authorstandard %in% fame)
+
+# clean position
+paintings_validation_new[which(paintings_validation_new$position > 1), 'position'] <-
+  paintings_validation_new[which(paintings_validation_new$position > 1), 'position']/100
+
+# clean Shape
+paintings_validation_new[which(paintings_validation_new$Shape == "ronde"), 'Shape'] <-
+  "round"
+paintings_validation_new[which(paintings_validation_new$Shape == "ovale"), 'Shape'] <-
+  "oval"
+paintings_validation_new$Shape <- droplevels(paintings_validation_new$Shape)
+
+# clean authorstyle
+paintings_validation_new[which(paintings_validation_new$authorstyle == "copy of"), 'authorstyle'] <- "copy after"
+paintings_validation_new[which(paintings_validation_new$authorstyle == "taste of"), 'authorstyle'] <- "in the taste of"
+paintings_validation_new[which(paintings_validation_new$authorstyle == "advanced by"), 'authorstyle'] <- "attributed to"
+paintings_validation_new$authorstyle <- droplevels(paintings_validation_new$authorstyle)
+
+# choose variables
+paintings_validation_new <- paintings_validation_new %>%
+  select(-winningbidder, -authorstandard, -sale, -lot, -price, -count,
+         -subject, -author, -Interm, -Height_in, -Width_in, -Diam_in,
+         -Surface_Rect, -Surface_Rnd, -material, -materialCat)
+
+# clean Surface
+paintings_validation_new[which(paintings_validation_new$Surface == 0), 'Surface'] <- NA
+
+# clean mat
+paintings_validation_new[which(paintings_validation_new$mat == 'a'), 'mat'] <- 'c'
+paintings_validation_new[which(paintings_validation_new$mat == 'e'), 'mat'] <- 'h'
+paintings_validation_new$mat <- droplevels(paintings_validation_new$mat)
+
+# imputate missing
+set.seed(103)
+imputed_validation <- mice(paintings_validation_new, m = 5)
+paintings_validation_new <- mice::complete(imputed_validation)
+
+# log transformation to Surface
+paintings_validation_new$Surface <- log(paintings_validation_new$Surface)
+colnames(paintings_validation_new)[which(colnames(paintings_validation_new) == 'Surface')] <- "log_Surface"
+
+# clean winningbiddertype
+paintings_validation_new$winningbiddertype <- case_when(
+  paintings_validation_new$winningbiddertype == "B" ~ "B",
+  paintings_validation_new$winningbiddertype == "BB" ~ "B",
+  paintings_validation_new$winningbiddertype == "BC" ~ "B",
+  paintings_validation_new$winningbiddertype == "C" ~ "C",
+  paintings_validation_new$winningbiddertype == "D" ~ "D",
+  paintings_validation_new$winningbiddertype == "DB" ~ "D",
+  paintings_validation_new$winningbiddertype == "DC" ~ "D",
+  paintings_validation_new$winningbiddertype == "DD" ~ "D",
+  paintings_validation_new$winningbiddertype == "E" ~ "E",
+  paintings_validation_new$winningbiddertype == "EB" ~ "E",
+  paintings_validation_new$winningbiddertype == "EBC" ~ "E",
+  paintings_validation_new$winningbiddertype == "EC" ~ "E",
+  paintings_validation_new$winningbiddertype == "ED" ~ "E",
+  paintings_validation_new$winningbiddertype == "U" ~ "n/a",
+  paintings_validation_new$winningbiddertype == "n/a" ~ "n/a"
+)
+paintings_validation_new$winningbiddertype <- as.factor(paintings_validation_new$winningbiddertype)
+
+# standardize variable type
+paintings_validation_new <- rbind(paintings_train_new[1,],paintings_validation_new)
+paintings_validation_new <- paintings_validation_new[-1,]
+
+```
+
+
+```{r cache=TRUE}
+set.seed(53)
+forest <- randomForest(logprice ~ year + log_Surface + dealer + lrgfont + endbuyer + origin_author + winningbiddertype + finished + type_intermed + diff_origin + prevcoll + paired + mat + Fame, data = paintings_train_new, mtry = 13, importance = TRUE)
+yhat2 <- predict(forest, paintings_train_new)
+rmse2 <- sqrt(mean((yhat2-paintings_train_new$logprice)^2))
+
+pred.train <- exp(predict(forest, paintings_train_new))
+mean <- matrix(NA,nrow = 30, ncol = 1330)
+for(i in 1:30){
+  bootstrap <- sample_n(paintings_train_new, 1300, replace = TRUE)
+  bootstrap_tree <- randomForest(formula(forest), data = bootstrap, mtry = 13, importance = TRUE)
+  yhat <- predict(bootstrap_tree, paintings_train_new)
+  mean[i,] <- yhat
+}
+interval <- cbind(
+  apply(mean, 2, quantile, probs = 0.025) - 1.96*rmse2,
+  apply(mean, 2, quantile, probs = 0.975) + 1.96*rmse2)
+lwr <- exp(interval[,1])
+upr <- exp(interval[,2])
+
+assessment <- function(y, y_pred, lwr, upr){
+  rmse <- sqrt(mean((y - y_pred)^2))
+  max_dev <- max(abs(y - y_pred))
+  mean_abs_dev <- mean(abs(y - y_pred))
+  bias <- mean(y_pred - y)
+  coverage <- mean(y > lwr & y < upr)
+  res <- matrix(c(bias, coverage, max_dev, mean_abs_dev, rmse), ncol = 5)
+  colnames(res) <- c("bias","coverage","Max AbsDeviation", "Mean AbsDeviation", "RMSE")
+  return(res)
+}
+
+a <- assessment(exp(paintings_train_new$logprice), pred.train, lwr, upr)
+kable(a, caption = 'Performance on training data', digits = 3)
+
+```
+
+As we can see, when using our model to predict training data, RMSE is `r a[1,5]` and coverage is $100\%$. The coverage is quite satisfying. Also, when we upload our predict-test.Rdata, Wercker shows that for test data, our RMSE is around $886.10$, which is similar to training RMSE. This indicates that our model is a good one to reduce overfitting. In addition, covarage for test data is $93.46\%$, which means that our model can fairly deal with model uncertainty.
+
+```{r}
+pred.val <- predict(forest, paintings_validation_new)
+top10 <- paintings_validation[order(pred.val)[1:10] ,] %>%
+  select(authorstandard, year, dealer, Surface, endbuyer)
+top10$authorstandard <- c("Federico Barocci", "Robert Tournières",
+                        "Flemish", "Johann Wilhelm Baur",
+                        "Flemish", "Guido Reni", "Johann Wilhelm Baur",
+                        "Johann Wilhelm Baur", "Anonymous", "Antoine Dieu")
+colnames(top10) <- c("author", "year", "dealer", "surface", "endbuyer")
+rownames(top10) <- 1:10
+kable(top10, caption = 'Top 10 valued paintings')
+```
+
+From our result of top 10, except one "anonymous", all authors that appear in top $10$ are all very famous painters, so adding a new variable `Fame` is reasonable. Also $9$ of $10$ paintings are sold in 1768 with J-type dealers. This matches with our random forest model, which exactly shows that `Fame`, `year` and `dealer` are top three important variables.
+
+```{r}
+kable(sort(importance(forest)[, 1], decreasing = T)[1:5], col.names = "%IncMSE",
+      digits = 3,
+      caption = 'Variable Importance Plot')
+```
+
+
+# Conclusion
+
+The target of this report is to find out the factors that could affect the price of paintings in 18th century Paris, and thus to identify the potentially overvalued and undervalued paintings. We have tried two methods to build the prediction models: linear regression model and Random Forest.
+
+In the linear regression model, we start with choosing the main predictors from EDA (Exploratory data analysis). And we fit the full model including all of the chosen predictors and the interactions between them. Then we implement the BIC procedure and end up with the model including `dealer`, `year`, `origin_author`, `endbuyer`, `log_Surface`, `finished`, `lrgfont`, `winningbiddertype` and `year:winningbiddertype`.
+
+```{r}
+coef_bic <- summary(model1)$coefficients
+kable(data.frame(
+  Estimate = coef_bic[,1],
+  CI_Low = coef_bic[, 1] - 1.96 * coef_bic[, 2],
+  CI_Up = coef_bic[, 1] + 1.96 * coef_bic[, 2]),
+  digits = 3,
+  caption = "Summary of coefficients and confidence intervals of linear model")
+```
+
+For every one year after the previous year, we expect that the price of the painting will be $e^{0.09}$ times higher, and we are $95\%$ confident that the fluction is between $e^{-0.08}$ to $e^{0.26}$, which is from $0.92$ to $1.30$.
+
+Given all other conditions unchanged (eg: same dealer, same year, same origin, etc.), we expect the price of the painting will be $e^{-110}$ times higher if the type of winning bidder is a collector. And we are $95\%$ confident that the price fluction will be between $e^{-410}$ and $e^{191}$ times higher.
+
+Given all other conditions unchanged (eg: same dealer, same year,same origin,etc.), we expect the price of painting will be $e^{10}$ times higher if the type of winning bidder is a dealer. And we are $95\%$ confident that the price fluction will be between $e^{-286}$ and $e^{307}$ times higher. 
+
+Given all other conditions unchanged (eg: same dealer, same year,same origin,etc.), we expect the price of painting will be $e^{-210}$ times higher if the type of winning bidder is an expert organizing the sale. And we are $95\%$ confident that the price fluction will be between $e^{-511}$ and $e^{91}$ times higher. 
+
+In the random forest model, we reselect the main predictors using Variable Importance Measures in Random Forest as well as EDA results and intuition. Then we fit the random forest model using the selected predictors and the result shows as below.
+
+```{r fig.cap='Variable Importance Measures'}
+varImpPlot(forest, n.var = 10)
+```
+
+From the variable importance measures plot of random forest, we can see that from the perspective of accuracy, the $10$ most important predictors for random forest are `Fame`, `year`, `dealer`, `log_Surface`, `endbuyer`, `finished`, `lrgfont`, `orgin_author`, `type_intermed` and `winningbiddertype`. These are the factors that could significantly affect the price of paintings in 18th century Paris and are the recommended features to look for to find the most valuable paintings.
+
+The prediction performance of the two models on the new test data is shown below.
+
+```{r}
+test_perform <- data.frame(
+  linear = c(206.171, 0.952, 13558.248, 541.419, 1487.499),
+  rf = c(153.389, 0.935, 8422.37, 313.295, 886.098))
+rownames(test_perform) <- c("Bias", "Coverage", "maxDeviation", "MeanAbsDeviation", "RMSE")
+kable(test_perform,
+  caption = "Summary of Prediction Performance on the Test Data")
+```
+
+Based on the table above, we decide to choose random forest as our final model due to its low `Bias`, similar `coverage`, low `maxDeviation`, low `MeanAbsDeviation` and small `RMSE` compared with linear regression model. But there are also some limitations on our model.
+
+1. Our choice of main predictors is mostly based on random forest, EDA and intuition. It is highly possible that there exists another combination of predictors that can outperform our current model. If we had more time, we would mainly focus on this problem.
+
+2. Random forest does a good job at classification problems but not as good for regression problems. This is because of its property that it doesn't provide precise continuous prediction. This will lead to the result that random forest may overfit data set when it is particularly noisy.
+
+3. Random forest sometimes feel like a black box and hard to interpret. The users have very little control on what the model does. Sometimes more tries on the parameters and random seeds will provide a better result.
+
+```{r cache=T, include=F}
+mean <- matrix(NA, nrow = 30, ncol = 750)
+for(i in 1:30){
+  bootstrap <- sample_n(paintings_train_new, nrow(paintings_train_new), replace = TRUE)
+  bootstrap_tree <- randomForest(logprice ~ year + log_Surface + dealer + lrgfont + endbuyer + origin_author + winningbiddertype + finished + type_intermed + diff_origin + prevcoll + paired + mat + Fame, data = bootstrap, mtry = 13, importance = TRUE)
+  yhat <- predict(bootstrap_tree, paintings_test_new)
+  mean[i,] <- yhat
+}
+interval <- cbind(
+  apply(mean, 2, quantile, probs = 0.025) - 1.96 * rmse2,
+  apply(mean, 2, quantile, probs = 0.975) + 1.96 * rmse2)
+fit <- exp(predict(forest, paintings_test_new))
+lwr <- exp(interval[, 1])
+upr <- exp(interval[, 2])
+predictions <- data.frame(fit, lwr, upr)
+save(predictions, file = "predict-test.Rdata")
+```
+
+
+```{r cache=T, include=F}
+mean <- matrix(NA, nrow = 30, ncol = nrow(paintings_validation_new))
+for(i in 1:30){
+  bootstrap <- sample_n(paintings_train_new, nrow(paintings_train_new), replace = TRUE)
+  bootstrap_tree <- randomForest(logprice ~ year + log_Surface + dealer + lrgfont + endbuyer + origin_author + winningbiddertype + finished + type_intermed + diff_origin + prevcoll + paired + mat + Fame, data = bootstrap, mtry = 13, importance = TRUE)
+  yhat <- predict(bootstrap_tree, paintings_validation_new)
+  mean[i,] <- yhat
+}
+interval <- cbind(
+  apply(mean, 2, quantile, probs = 0.025) - 1.96 * rmse2,
+  apply(mean, 2, quantile, probs = 0.975) + 1.96 * rmse2)
+fit <- exp(predict(forest, paintings_validation_new))
+lwr <- exp(interval[, 1])
+upr <- exp(interval[, 2])
+predictions <- data.frame(fit, lwr, upr)
+save(predictions, file = "predict-validation.Rdata")
+```
+
