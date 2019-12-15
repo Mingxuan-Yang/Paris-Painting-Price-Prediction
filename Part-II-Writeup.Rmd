@@ -26,32 +26,55 @@ load("paintings_test.Rdata")
 load("paintings_validation.RData")
 ```
 
-
 ```{r}
 # replace blank space and NA of categorical variables with n/a
 paintings_train_new <- paintings_train
-paintings_train_new[, c(4, 6:9, 12:22, 25, 27:28, 30:32, 34:59)] <- as.data.frame(sapply(paintings_train_new[, c(4, 6:9, 12:22, 25, 27:28, 30:32, 34:59)], function(x) ifelse(x == "" | x == "-", "n/a", x)))
+ca_var <- c("dealer","origin_author","origin_cat","school_pntg","diff_origin","count","subject","authorstandard","artistliving","authorstyle","author","winningbidder","winningbiddertype","endbuyer","Interm","type_intermed","Surface_Rect","Surface_Rnd","Shape","material","mat","materialCat","engraved","original","prevcoll","othartist","paired","figures","finished","lrgfont","relig","landsALL","lands_sc","lands_elem","lands_figs","lands_ment","arch","mytho","peasant","othgenre","singlefig","portrait","still_life","discauth","history","allegory","pastorale","other")
+
+paintings_train_new[, ca_var] <- as.data.frame(sapply(paintings_train_new[,ca_var], function(x) ifelse(x == "" | x == "-", "n/a", x)))
+
+# mutate a variable that represents ratio of height and width, which equals 1 for circle and square
+paintings_train_new$ratio <- paintings_train_new$Height_in/paintings_train_new$Width_in
+paintings_train_new[which(paintings_train_new$Diam_in != 0), 'ratio'] <- 1
+
+# mutate a series of dummy variables representing the top 20
+fame <- paintings_train_new %>% 
+  select(authorstandard, logprice) %>% 
+  arrange(desc(logprice)) %>% 
+  slice(1:75) %>% 
+  select(authorstandard) %>% 
+  unique() %>% unlist() %>% as.character()
+paintings_train_new <- paintings_train_new %>% 
+  mutate(Fame = authorstandard %in% fame)
+
 # clean position
 paintings_train_new <- paintings_train_new[-which(paintings_train_new$position > 1),]
+
 # clean Shape
-paintings_train_new[which(paintings_train_new$Shape == "ronde"), 28] <- "round"
-paintings_train_new[which(paintings_train_new$Shape == "ovale"), 28] <- "oval"
+paintings_train_new[which(paintings_train_new$Shape == "ronde"), 'Shape'] <- "round"
+paintings_train_new[which(paintings_train_new$Shape == "ovale"), 'Shape'] <- "oval"
 paintings_train_new$Shape <- droplevels(paintings_train_new$Shape)
+
 # clean authorstyle
 paintings_train_new[which(paintings_train_new$authorstyle == "in the taste"|paintings_train_new$authorstyle == "taste of"), 'authorstyle'] <-
   "in the taste of"
 paintings_train_new$authorstyle <- droplevels(paintings_train_new$authorstyle)
+
 # choose variables
 paintings_train_new <- paintings_train_new %>%
   select(-winningbidder, -authorstandard, -sale, -lot, -price, -count, -subject, -author, -Interm, -Surface_Rect, -Surface_Rnd, -material, -materialCat, -Height_in, -Width_in, -Diam_in)
+
 # delete repeating data
 paintings_train_new <- unique(paintings_train_new)
+
 # imputate missing
 set.seed(103)
 imputed <- mice(paintings_train_new, m = 5)
 paintings_train_new <- mice::complete(imputed)
+
 # clean Surface
 paintings_train_new <- paintings_train_new[-which(paintings_train_new$Surface == 0),]
+
 # clean winningbiddertype
 paintings_train_new$winningbiddertype <- case_when(
   paintings_train_new$winningbiddertype == "B" ~ "B",
@@ -71,9 +94,12 @@ paintings_train_new$winningbiddertype <- case_when(
   paintings_train_new$winningbiddertype == "n/a" ~ "n/a"
 )
 paintings_train_new$winningbiddertype <- as.factor(paintings_train_new$winningbiddertype)
+
 # log transformation to Surface
 paintings_train_new$Surface <- log(paintings_train_new$Surface)
-colnames(paintings_train_new)[15] <- "log_Surface"
+colnames(paintings_train_new)[which(colnames(paintings_train_new) == 'Surface')] <- "log_Surface"
+
+
 ```
 
 
@@ -85,13 +111,22 @@ colnames(paintings_train_new)[15] <- "log_Surface"
 # test data
 paintings_test_new <- paintings_test
 # replace blank space and NA of categorical variables with n/a
-paintings_test_new[, c(4, 6:9, 12:22, 25, 27:28, 30:32, 34:59)] <- as.data.frame(
-  sapply(paintings_test_new[, c(4, 6:9, 12:22, 25, 27:28, 30:32, 34:59)],
+paintings_test_new[, ca_var] <- as.data.frame(
+  sapply(paintings_test_new[, ca_var],
          function(x) ifelse(paste(x) == "" | paste(x) == "-",
                             "n/a", paste(x))))
 # clean position
-paintings_test_new[which(paintings_test_new$position > 1), 3] <-
-  paintings_test_new[which(paintings_test_new$position > 1), 3]/100
+paintings_test_new[which(paintings_test_new$position > 1), 'position'] <-
+  paintings_test_new[which(paintings_test_new$position > 1), 'position']/100
+################## add write up
+
+# mutate a variable that represents ratio of height and width, which equals 1 for circle and square
+paintings_test_new$ratio <- paintings_test_new$Height_in/paintings_test_new$Width_in
+paintings_test_new[which(paintings_test_new$Diam_in != 0), 'ratio'] <- 1
+
+paintings_test_new <- paintings_test_new %>% 
+  mutate(Fame = authorstandard %in% fame)
+
 # clean Shape
 paintings_test_new[which(paintings_test_new$Shape == "ronde"), 'Shape'] <-
   "round"
@@ -100,26 +135,32 @@ paintings_test_new[which(paintings_test_new$Shape == "ovale"), 'Shape'] <-
 paintings_test_new[which(paintings_test_new$Shape == "octogon"), 'Shape'] <-
   "octagon"
 paintings_test_new$Shape <- droplevels(paintings_test_new$Shape)
+
 # clean authorstyle
 paintings_test_new[which(paintings_test_new$authorstyle == "copy by"), 'authorstyle'] <-
   "copy after"
 paintings_test_new[which(paintings_test_new$authorstyle == "study of"), 'authorstyle'] <-
   'school of'
 paintings_test_new$authorstyle <- droplevels(paintings_test_new$authorstyle)
+
 # choose variables
 paintings_test_new <- paintings_test_new %>%
   select(-winningbidder, -authorstandard, -sale, -lot, -price, -count,
          -subject, -author, -Interm, -Height_in, -Width_in, -Diam_in,
          -Surface_Rect, -Surface_Rnd, -material, -materialCat)
+
 # clean Surface
-paintings_test_new[which(paintings_test_new$Surface == 0), 15] <- NA
+paintings_test_new[which(paintings_test_new$Surface == 0), 'Surface'] <- NA
+
 # imputate missing
 set.seed(103)
 imputed_test <- mice(paintings_test_new, m = 5)
 paintings_test_new <- mice::complete(imputed_test)
+
 # log transformation to Surface
 paintings_test_new$Surface <- log(paintings_test_new$Surface)
-colnames(paintings_test_new)[15] <- "log_Surface"
+colnames(paintings_test_new)[which(colnames(paintings_test_new) == 'Surface')] <- "log_Surface"
+
 # clean winningbiddertype
 paintings_test_new$winningbiddertype <- case_when(
   paintings_test_new$winningbiddertype == "B" ~ "B",
@@ -139,15 +180,11 @@ paintings_test_new$winningbiddertype <- case_when(
   paintings_test_new$winningbiddertype == "n/a" ~ "n/a"
 )
 paintings_test_new$winningbiddertype <- as.factor(paintings_test_new$winningbiddertype)
+
+# standardized variable type
 paintings_test_new <- rbind(paintings_train_new[1,],paintings_test_new)
 paintings_test_new <- paintings_test_new[-1,]
 
-# clean authorstyle
-paintings_test_new[which(paintings_test_new$authorstyle == "copy by"), 'authorstyle'] <-
-  "copy after"
-paintings_test_new[which(paintings_test_new$authorstyle == "study of"), 'authorstyle'] <-
-  'school of'
-paintings_test_new$authorstyle <- droplevels(paintings_test_new$authorstyle)
 ```
 
 
@@ -161,43 +198,58 @@ This is well known to underestimate uncertainty in general. Therefore while this
 # validation data
 paintings_validation_new <- paintings_validation
 # replace blank space and NA of categorical variables with n/a
-paintings_validation_new[, c(4, 6:9, 12:22, 25, 27:28, 30:32, 34:59)] <- as.data.frame(
-  sapply(paintings_validation_new[, c(4, 6:9, 12:22, 25, 27:28, 30:32, 34:59)],
-         function(x) ifelse(paste(x) == "" | paste(x) == "-",
-                            "n/a", paste(x))))
+paintings_validation_new[, ca_var] <- as.data.frame(
+  sapply(paintings_validation_new[, ca_var],
+         function(x) ifelse(paste(x) == "" | paste(x) == "-", "n/a", paste(x))))
+
+
+# mutate a variable that represents ratio of height and width, which equals 1 for circle and square
+paintings_validation_new$ratio <- paintings_validation_new$Height_in/paintings_validation_new$Width_in
+paintings_validation_new[which(paintings_validation_new$Diam_in != 0), 'ratio'] <- 1
+
+paintings_validation_new <- paintings_validation_new %>% 
+  mutate(Fame = authorstandard %in% fame)
+
 # clean position
-paintings_validation_new[which(paintings_validation_new$position > 1), 3] <-
-  paintings_validation_new[which(paintings_validation_new$position > 1), 3]/100
+paintings_validation_new[which(paintings_validation_new$position > 1), 'position'] <-
+  paintings_validation_new[which(paintings_validation_new$position > 1), 'position']/100
+
 # clean Shape
 paintings_validation_new[which(paintings_validation_new$Shape == "ronde"), 'Shape'] <-
   "round"
 paintings_validation_new[which(paintings_validation_new$Shape == "ovale"), 'Shape'] <-
   "oval"
-paintings_validation_new[which(paintings_validation_new$Shape == "octogon"), 'Shape'] <-
-  "octagon"
 paintings_validation_new$Shape <- droplevels(paintings_validation_new$Shape)
+
 # clean authorstyle
-paintings_validation_new[which(paintings_validation_new$authorstyle == "copy by"|paintings_validation_new$authorstyle == "copy of"), 'authorstyle'] <-
-  "copy after"
-paintings_train_new[which(paintings_train_new$authorstyle == "in the taste"|paintings_train_new$authorstyle == "taste of"), 'authorstyle'] <-
-  "in the taste of"
-paintings_validation_new[which(paintings_validation_new$authorstyle == "study of"), 'authorstyle'] <-
-  'school of'
+paintings_validation_new[which(paintings_validation_new$authorstyle == "copy of"), 'authorstyle'] <- "copy after"
+paintings_validation_new[which(paintings_validation_new$authorstyle == "taste of"), 'authorstyle'] <- "in the taste of"
+paintings_validation_new[which(paintings_validation_new$authorstyle == "advanced by"), 'authorstyle'] <- "attributed to"
 paintings_validation_new$authorstyle <- droplevels(paintings_validation_new$authorstyle)
+
 # choose variables
 paintings_validation_new <- paintings_validation_new %>%
   select(-winningbidder, -authorstandard, -sale, -lot, -price, -count,
          -subject, -author, -Interm, -Height_in, -Width_in, -Diam_in,
          -Surface_Rect, -Surface_Rnd, -material, -materialCat)
+
 # clean Surface
-paintings_validation_new[which(paintings_validation_new$Surface == 0), 15] <- NA
+paintings_validation_new[which(paintings_validation_new$Surface == 0), 'Surface'] <- NA
+
+# clean mat
+paintings_validation_new[which(paintings_validation_new$mat == 'a'), 'mat'] <- 'c'
+paintings_validation_new[which(paintings_validation_new$mat == 'e'), 'mat'] <- 'h'
+paintings_validation_new$mat <- droplevels(paintings_validation_new$mat)
+
 # imputate missing
 set.seed(103)
 imputed_validation <- mice(paintings_validation_new, m = 5)
 paintings_validation_new <- mice::complete(imputed_validation)
+
 # log transformation to Surface
 paintings_validation_new$Surface <- log(paintings_validation_new$Surface)
-colnames(paintings_validation_new)[15] <- "log_Surface"
+colnames(paintings_validation_new)[which(colnames(paintings_validation_new) == 'Surface')] <- "log_Surface"
+
 # clean winningbiddertype
 paintings_validation_new$winningbiddertype <- case_when(
   paintings_validation_new$winningbiddertype == "B" ~ "B",
@@ -217,21 +269,28 @@ paintings_validation_new$winningbiddertype <- case_when(
   paintings_validation_new$winningbiddertype == "n/a" ~ "n/a"
 )
 paintings_validation_new$winningbiddertype <- as.factor(paintings_validation_new$winningbiddertype)
+
+# standardize variable type
 paintings_validation_new <- rbind(paintings_train_new[1,],paintings_validation_new)
 paintings_validation_new <- paintings_validation_new[-1,]
 
 ```
 
 ```{r}
+range = which(colnames(paintings_test_new) %in% c('year' , 'log_Surface' , 'dealer' , 'lrgfont' , 'endbuyer' , 'origin_author' , 'finished' , 'winningbiddertype' , 'position' , 'type_intermed' , 'mat' , 'diff_origin' , 'authorstyle' , 'prevcoll', 'school_pntg'))
+for (i in range) {
+  if (is.factor(paintings_train_new[,i])) {
+    if (!all(levels(paintings_test_new[,i]) %in% levels(paintings_train_new[,i]))) print(i)
+  }
+}
+```
+
+
+```{r}
 # rmse
 rmse <- function(y, ypred){
   rmse = sqrt(mean((y - ypred)^2))
   return(rmse)
-}
-
-# coverage
-coverage <- function(y, ypred){
-  mean(ypred[,"lwr"]<y&ypred[,"upr"]>y)
 }
 
 full_true <- readxl::read_excel("paris_paintings.xlsx")["logprice"]
@@ -242,8 +301,6 @@ validation_true <- full_true[row_names, ]
 row_names <- rownames(paintings_test)
 row_names <- as.double(row_names)
 test_true <- full_true[row_names, ]
-
-
 
 # rmse data
 rmse_data <- function(model){
@@ -259,13 +316,16 @@ rmse_data <- function(model){
 ```
 
 ```{r}
-set.seed(3)
+set.seed(10)
 forest=randomForest(logprice~year+log_Surface+dealer+lrgfont+endbuyer+origin_author+
-                      finished+type_intermed+diff_origin+
-                      prevcoll+winningbiddertype+school_pntg, data=paintings_train_new,mtry=12,importance=TRUE)
+                      winningbiddertype+finished+type_intermed+diff_origin+prevcoll+paired+
+                      mat+Fame, data=paintings_train_new,mtry=13,importance=TRUE)
 yhat2=predict(forest,paintings_train_new)
 rmse2=sqrt(mean((yhat2-paintings_train_new$logprice)^2))
+rmse_data(forest)
+```
 
+```{r}
 mean=matrix(NA,nrow=30,ncol=750)
 for(i in 1:30){
   bootstrap=sample_n(paintings_train_new,1300,replace = TRUE)
@@ -282,10 +342,9 @@ lwr=exp(interval[,1])
 upr=exp(interval[,2])
 predictions=data.frame(fit,lwr,upr)
 save(predictions,file="predict-test.Rdata")
-rmse_data(forest)
 ```
 
 ```{r}
-varImpPlot(forest)
+fit_val <- exp(predict(forest, paintings_validation_new))
 ```
 
