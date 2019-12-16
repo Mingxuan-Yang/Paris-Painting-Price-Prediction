@@ -20,6 +20,6 @@ build:
     - script:
       name: Validation Scoring
       code: |
-          wget --quiet --no-check-certificate http://www.stat.duke.edu/courses/Fall19/sta521/Final_Project_Scoring/Validation_Score.R
-          Rscript Validation_Score.R $TEAM $MONGO_URL $VALDATA_URL
+          wget --quiet --no-check-certificate http://www.stat.duke.edu/courses/Fall19/sta521/Final_Project_Scoring/Validation_Scoring.R
+          Rscript Validation_Scoring.R $TEAM $MONGO_URL $VALDATA_URL
 
