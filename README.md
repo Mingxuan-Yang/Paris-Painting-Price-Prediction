@@ -45,7 +45,7 @@ In this project, we have tested four kinds of models based on the variables sele
 - Bayesian Model Average  
 - Generalized Additive Model
 
-The model performance is evaluated through 5 indicators:
+The model performance is evaluated through 5 indicators, where Yhat means the predicted price, Y means the true price, lwr and upr denotes the boundaries of the predicted confidence interval:
 
 - *Bias*: Average Yhat-Y, where positive values indicate the model tends to overestimate price (on average) while negative values indicate the model tends to underestimate price.  
 - *Maximum Deviation*: Maximum |Y-Yhat|, which identifies the worst prediction made in the validation data set.  
