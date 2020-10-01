@@ -1,4 +1,4 @@
-# Final-Project
+# Price Prediction of Paintings in the 18th Century Paris
 
 ## Introduction
 
