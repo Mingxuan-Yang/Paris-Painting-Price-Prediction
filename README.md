@@ -57,15 +57,15 @@ After weighing these indicators, we find that Random Forest seems to have the be
 
 ## Result
 
-The result of the scoreboard is based on `paintings_validation.Rdata` and can be viewed [here](https://www2.stat.duke.edu/courses/Fall19/sta521/Final_Project_Scoring/display_leaderboard.html). As Team 3, we came second in this competition. The results of our Random Forest model are shown below.
+The result of the scoreboard is based on `paintings_validation.Rdata` and can be viewed [here](https://www2.stat.duke.edu/courses/Fall19/sta521/Final_Project_Scoring/display_leaderboard.html). As Team 3, we came ***second*** in this competition. The results of our Random Forest model are shown below.
 
 |    |test data|validation data|
 |:--:|:--:|:--:|
-|Bias|153.389|216.605|
-|Coverage|0.935|0.923|
-|Maximum Deviation|8422.370|15553.292|
-|Mean Absolute Deviation|313.295|357.611
-|RMSE|886.098|1164.917|
+|*Bias*|153.389|216.605|
+|*Coverage*|0.935|0.923|
+|*Maximum Deviation*|8422.370|15553.292|
+|*Mean Absolute Deviation*|313.295|357.611
+|*RMSE*|886.098|1164.917|
 
 ## Authors
 
