@@ -1,5 +1,7 @@
 # Price Prediction of Paintings in the 18th Century Paris
 
+*Project Date: 2019-12-15*
+
 ## Introduction
 
 This is a group project, where we take the role of a consultant hired by an Art historian to explore what factors drove the prices of paintings in 18th century Paris. Based on these factors, a prediction model will be built to identify possible overvalued and undervalued paintings.
